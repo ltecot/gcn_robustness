@@ -99,6 +99,7 @@ def test():
 t_total = time.time()
 for epoch in range(args.epochs):
     train(epoch)
+torch.save(model, "gcn_model.pth")
 print("Optimization Finished!")
 print("Total time elapsed: {:.4f}s".format(time.time() - t_total))
 
