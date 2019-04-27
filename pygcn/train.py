@@ -41,14 +41,14 @@ if args.cuda:
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
 
-if args.cuda:
-    # model.cuda()
-    features = features.cuda()
-    adj = adj.cuda()
-    labels = labels.cuda()
-    idx_train = idx_train.cuda()
-    idx_val = idx_val.cuda()
-    idx_test = idx_test.cuda()
+# if args.cuda:
+#     # model.cuda()
+#     features = features.cuda()
+#     adj = adj.cuda()
+#     labels = labels.cuda()
+#     idx_train = idx_train.cuda()
+#     idx_val = idx_val.cuda()
+#     idx_test = idx_test.cuda()
 
 # Model and optimizer
 # model = GCN(nfeat=features.shape[1],
@@ -62,8 +62,10 @@ model = gcn_sequential_model(nfeat=features.shape[1],
 optimizer = optim.Adam(model.parameters(),
                        lr=args.lr, weight_decay=args.weight_decay)
 
-if args.cuda:
-    model.cuda()
+print(features.shape[1], args.hidden, labels.max().item() + 1, features.shape)
+
+# if args.cuda:
+#     model.cuda()
 
 def train(epoch):
     t = time.time()

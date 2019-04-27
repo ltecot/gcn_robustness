@@ -18,14 +18,16 @@ torch.manual_seed(42)
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
+adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each layer must have an adj, which is an issue.
 
 # Model and optimizer
 model = torch.load('gcn_model.pth')
 
 # Bounds
 bound_calc = GCNBounds(model, features, adj, 0.01)
-print(bound_calc)
+bounds = bound_calc.bounds
+print(bounds)
 torch.save({
-            'lower_bound': bound_calc[0],
-            'lower_bound': bound_calc[0],
+            'lower_bound': bounds[0],
+            'upper_bound': bounds[1],
             }, 'test_bounds.pt')
