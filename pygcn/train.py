@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pygcn.utils import load_data, accuracy
-from pygcn.models import GCN
+from pygcn.models import gcn_sequential_model
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -41,16 +41,8 @@ if args.cuda:
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
 
-# Model and optimizer
-model = GCN(nfeat=features.shape[1],
-            nhid=args.hidden,
-            nclass=labels.max().item() + 1,
-            dropout=args.dropout)
-optimizer = optim.Adam(model.parameters(),
-                       lr=args.lr, weight_decay=args.weight_decay)
-
 if args.cuda:
-    model.cuda()
+    # model.cuda()
     features = features.cuda()
     adj = adj.cuda()
     labels = labels.cuda()
@@ -58,13 +50,29 @@ if args.cuda:
     idx_val = idx_val.cuda()
     idx_test = idx_test.cuda()
 
+# Model and optimizer
+# model = GCN(nfeat=features.shape[1],
+#             nhid=args.hidden,
+#             nclass=labels.max().item() + 1,
+#             dropout=args.dropout)
+model = gcn_sequential_model(nfeat=features.shape[1],
+                             nhid=args.hidden, 
+                             nclass=labels.max().item() + 1,
+                             adj=adj)
+optimizer = optim.Adam(model.parameters(),
+                       lr=args.lr, weight_decay=args.weight_decay)
+
+if args.cuda:
+    model.cuda()
 
 def train(epoch):
     t = time.time()
     model.train()
     optimizer.zero_grad()
-    output = model(features, adj)
-    loss_train = F.nll_loss(output[idx_train], labels[idx_train])
+    # output = model(features, adj)
+    output = model(features)
+    # loss_train = F.nll_loss(output[idx_train], labels[idx_train])
+    loss_train = F.nll_loss(F.log_softmax(output[idx_train], dim=1), labels[idx_train])
     acc_train = accuracy(output[idx_train], labels[idx_train])
     loss_train.backward()
     optimizer.step()
@@ -73,9 +81,11 @@ def train(epoch):
         # Evaluate validation set performance separately,
         # deactivates dropout during validation run.
         model.eval()
-        output = model(features, adj)
+        # output = model(features, adj)
+        output = model(features)
 
-    loss_val = F.nll_loss(output[idx_val], labels[idx_val])
+    # loss_val = F.nll_loss(output[idx_val], labels[idx_val])
+    loss_val = F.nll_loss(F.log_softmax(output[idx_val], dim=1), labels[idx_val])
     acc_val = accuracy(output[idx_val], labels[idx_val])
     print('Epoch: {:04d}'.format(epoch+1),
           'loss_train: {:.4f}'.format(loss_train.item()),
@@ -87,8 +97,10 @@ def train(epoch):
 
 def test():
     model.eval()
-    output = model(features, adj)
-    loss_test = F.nll_loss(output[idx_test], labels[idx_test])
+    # output = model(features, adj)
+    output = model(features)
+    # loss_test = F.nll_loss(output[idx_test], labels[idx_test])
+    loss_test = F.nll_loss(F.log_softmax(output[idx_test], dim=1), labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
     print("Test set results:",
           "loss= {:.4f}".format(loss_test.item()),
