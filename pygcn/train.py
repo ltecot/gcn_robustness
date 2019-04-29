@@ -9,8 +9,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pygcn.utils import load_data, accuracy
-from pygcn.models import gcn_sequential_model
+from utils import load_data, accuracy
+from models import gcn_sequential_model
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -29,6 +29,9 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
+parser.add_argument('--dataset', type=str, default="cora",
+                    help='Dataset to be used')
+
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -39,7 +42,7 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 # Load data
-adj, features, labels, idx_train, idx_val, idx_test = load_data()
+adj, features, labels, idx_train, idx_val, idx_test = load_data(args.dataset)
 
 # if args.cuda:
 #     # model.cuda()
