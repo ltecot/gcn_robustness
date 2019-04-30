@@ -29,6 +29,8 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
+parser.add_argument('--small', action='store_true', default=True, # default=False,
+                    help='Train a small model instead')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -41,6 +43,20 @@ if args.cuda:
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
 
+# print(idx_train)
+# print(idx_val)
+if args.small:
+    adj = adj.to_dense()
+    adj = adj[0:100, 0:100]
+    # print(adj.shape)
+    features = features[:100]
+    labels = labels[:100]
+    idx_train = torch.LongTensor(range(70))
+    idx_val = torch.LongTensor(range(70, 90))
+    idx_test = torch.LongTensor(range(90, 100))
+else:
+    adj = adj.to_dense()  # To make life easier for now
+    # idx_train = 
 # if args.cuda:
 #     # model.cuda()
 #     features = features.cuda()
@@ -62,7 +78,7 @@ model = gcn_sequential_model(nfeat=features.shape[1],
 optimizer = optim.Adam(model.parameters(),
                        lr=args.lr, weight_decay=args.weight_decay)
 
-print(features.shape[1], args.hidden, labels.max().item() + 1, features.shape)
+# print(features.shape[1], args.hidden, labels.max().item() + 1, features.shape)
 
 # if args.cuda:
 #     model.cuda()
@@ -113,7 +129,10 @@ def test():
 t_total = time.time()
 for epoch in range(args.epochs):
     train(epoch)
-torch.save(model, "gcn_model.pth")
+if args.small:
+    torch.save(model, "gcn_model_small.pth")
+else:
+    torch.save(model, "gcn_model.pth")
 print("Optimization Finished!")
 print("Total time elapsed: {:.4f}s".format(time.time() - t_total))
 
