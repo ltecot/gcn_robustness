@@ -15,7 +15,8 @@ class GraphConvolution(Module):
         super(GraphConvolution, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.adj = adj.to_dense()
+        self.adj = adj
+        # self.adj = adj.to_dense()
         self.weight = Parameter(torch.FloatTensor(in_features, out_features))
         if bias:
             self.bias = Parameter(torch.FloatTensor(out_features))

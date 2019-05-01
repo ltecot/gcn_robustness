@@ -5,13 +5,16 @@
 import torch
 import torch.nn.functional as F
 
-# from pygcn.models import GCN
 from pygcn.layers import GraphConvolution
 
-class GCNBounds():
+def kronecker(A, B):
+    return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
+
+class GCNBoundsRelaxed():
     # This class mostly serves as an automatic run and storage for the bounds. All methods
     # are static and can be used independently of a class instance.
     # Assumes the adjacency matrix has been normalized and had the identity added.
+    # This is the relaxed bounds derivation in the paper.
     def __init__(self, model, x, adj, eps):
         weights = self.extract_parameters(model)
         print("compute_preac_bounds")
@@ -82,9 +85,6 @@ class GCNBounds():
             next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
             if ind == 0:
                 for j in range(J):
-                    # print(w[:,j].shape)
-                    # print(lt[:, :, j].shape)
-                    # print(lt[:, :, j].mm(w[:,j]).shape)
                     next_l[:, j:j+1] = adj.mm(lt[:, :, j].mm(w[:,j:j+1]))  # One-element slice to keep dimensions
                     next_u[:, j:j+1] = adj.mm(ut[:, :, j].mm(w[:,j:j+1]))
             else:
@@ -147,20 +147,7 @@ class GCNBounds():
             delta_l, theta_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
             lmb_tilde_l, omg_tilde_l = torch.zeros(I, J), torch.zeros(I, J)
             # TODO: Vectorize
-            # for i in range(I):
-            #     for j in range(J):
-            #         for n in range(N):
-            #             lmd_l[n, i, j] = alpha_u[ind][n, i] if Lambda[0][i, j] >= 0 else alpha_l[ind][n, i]
-            #             omg_l[n, i, j] = alpha_l[ind][n, i] if Omega[0][i, j] >= 0 else alpha_u[ind][n, i]
-            #             delta_l[n, i, j] = beta_u[ind][n, i] if Lambda[0][i, j] >= 0 else beta_l[ind][n, i]
-            #             theta_l[n, i, j] = beta_l[ind][n, i] if Omega[0][i, j] >= 0 else beta_u[ind][n, i]
-            #         lmb_tilde_l[n, i, j] = torch.max(alpha_u[ind][:, i]) if Lambda[0][i, j] >= 0 else torch.min(alpha_l[ind][:, i])
-            #         omg_tilde_l[n, i, j] = torch.min(alpha_l[ind][:, i]) if Omega[0][i, j] >= 0 else torch.max(alpha_u[ind][:, i])
             for j in range(J):
-                # print(ind)
-                # print(len(alpha_u))
-                # print((Lambda[0][:, j] >= 0).float())
-                # print(torch.max(alpha_u[ind], 0))
                 lmd_l[:, :, j] = (alpha_u[ind] * (Lambda[0][:, j] >= 0).float().repeat(N, 1) +
                                   alpha_l[ind] * (Lambda[0][:, j] < 0).float().repeat(N, 1))
                 omg_l[:, :, j] = (alpha_l[ind] * (Omega[0][:, j] >= 0).float().repeat(N, 1) +
@@ -209,8 +196,159 @@ class GCNBounds():
         # TODO: Vectorize
         for i in range(len(J_tilde)-1):
             for j in range(J):
-                # print((lmd[i] * delta[i]).shape)
-                # print(Lambda[i+1].shape)
                 t3_u[:, j:j+1] += J_tilde[i+1].mm((lmd[i][:, :, j] * delta[i][:, :, j]).mm(Lambda[i+1][:, j:j+1]))
                 t3_l[:, j:j+1] += J_tilde[i+1].mm((omg[i][:, :, j] * theta[i][:, :, j]).mm(Omega[i+1][:, j:j+1]))
+        return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
+
+
+class GCNBoundsFull():
+    # This class mostly serves as an automatic run and storage for the bounds. All methods
+    # are static and can be used independently of a class instance.
+    # Assumes the adjacency matrix has been normalized and had the identity added.
+    # These are the full bounds in the paper using the Kronecker product. Note that this
+    # can take much more computation power and memory.
+    def __init__(self, model, x, adj, eps):
+        weights = self.extract_parameters(model)
+        # Doing full kronecker product takes terabytes of memory. Have to do it element-by-element.
+        # one_weight = kronecker(adj, weights[-1])
+        # print(one_weight.shape)
+        # print(adj.shape)
+        # print("got one weight")
+        # kronecker_weights = [kronecker(adj, w) for w in weights]
+        # x_vec = x.view(1, -1)
+        print("compute_preac_bounds")
+        l, u, l_tilde, u_tilde = self.compute_preac_bounds(x, eps, weights, adj)
+        print("compute_activation_bound_variables")
+        alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
+        print("compute_linear_bound_variables")
+        Lambda, Omega, lmd, omg, delta, theta = self.compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l)
+        print("compute_bounds")
+        bounds = self.compute_bounds(eps, x, Lambda, Omega, lmd, omg, delta, theta)
+
+        # Store variables
+        self.model = model
+        self.x = x
+        self.adj = adj
+        self.eps = eps
+        self.weights = weights
+        self.l = l
+        self.u = u
+        self.l_tilde = l_tilde
+        self.u_tilde = u_tilde
+        self.alpha_u = alpha_u
+        self.alpha_l = alpha_l
+        self.beta_u = beta_u
+        self.beta_l = beta_l
+        self.Lambda = Lambda
+        self.Omega = Omega
+        self.lmd = lmd
+        self.omg = omg
+        self.delta = delta
+        self.theta = theta
+        self.bounds = bounds
+
+    @staticmethod
+    def extract_parameters(model):
+        return GCNBoundsRelaxed.extract_parameters(model)
+
+    @staticmethod
+    def compute_preac_bounds(x, eps, weights, adj):
+        return GCNBoundsRelaxed.compute_preac_bounds(x, eps, weights, adj)
+
+    @staticmethod
+    def compute_activation_bound_variables(l, u):
+        alpha_u, alpha_l, beta_u, beta_l = GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
+        # Flatten all the variables
+        alpha_u_flat = [au.view(-1) for au in alpha_u]
+        alpha_l_flat = [al.view(-1) for al in alpha_l]
+        beta_u_flat = [bu.view(-1) for bu in beta_u]
+        beta_l_flat = [bl.view(-1) for bl in beta_l]
+        return alpha_u_flat, alpha_l_flat, beta_u_flat, beta_l_flat
+
+    @staticmethod
+    def compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l):
+        N = adj.shape[0]
+        J = weights[-1].shape[1]
+        NJ = N * J  # Because we're vectorizing to vanilla CROWN, dimensions are now in NI x NJ.
+        Lambda = [torch.eye(NJ)]
+        Omega = [torch.eye(NJ)]
+        lmd = []
+        omg = []
+        delta = [torch.zeros(NJ, NJ)]
+        theta = [torch.zeros(NJ, NJ)]
+        for ind, w in reversed(list(enumerate(weights))):
+            # print(ind)
+            # ind += 1  # alphas and betas have an extra 0 element.
+            # small lambda, small omega, delta, theta, and tilde lambda + omega
+            # I = alpha_u[ind].shape[1]  # Also Lambda[0][0]
+            NI = alpha_u[ind].shape[0]
+            # print(adj.shape, w.shape)
+            w_vec = kronecker(adj, w)  # Massive expanded weight matrix
+            # print(w_vec.shape)
+            # lmd_l, omg_l = torch.zeros(NI, NJ), torch.zeros(NI, NJ)
+            # delta_l, theta_l = torch.zeros(NI, NJ), torch.zeros(NI, NJ)
+            # lower case variables
+            weight_lambda = w_vec.mm(Lambda[0])
+            weight_omega = w_vec.mm(Omega[0])
+            # print(alpha_u[ind].view(-1,1).repeat(1, NJ).shape)
+            # print(alpha_l[ind].shape)
+            # print(weight_lambda.shape)
+            # print(weight_omega.shape)
+            if ind - 1 != 0:
+                lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
+                        alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
+                omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
+                        alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega < 0).float())
+            else:
+                lmd_l, omg_l = torch.ones(NI, NJ), torch.ones(NI, NJ)
+            # print(beta_u[ind].shape)
+            # print(beta_l[ind].shape)
+            # print(weight_lambda.shape)
+            # print(weight_omega.shape)
+            delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
+                       beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
+            theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
+                       beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega < 0).float())
+            # Lambda and Omega
+            Lambda_l = weight_lambda * lmd_l
+            Omega_l = weight_omega * omg_l
+            # Prepend all variables
+            Lambda = [Lambda_l] + Lambda
+            Omega = [Omega_l] + Omega
+            lmd = [lmd_l] + lmd
+            omg = [omg_l] + omg
+            delta = [delta_l] + delta
+            theta = [theta_l] + theta
+        return Lambda, Omega, lmd, omg, delta, theta
+
+    # Return global lower and upper bounds for each data point.
+    # Corresponds to corollary 4.3
+    @staticmethod
+    def compute_bounds(eps, xo, Lambda, Omega, lmd, omg, delta, theta):
+        N = xo.shape[0]
+        J = int(Lambda[0].shape[1] / N)
+        # print(N, J)
+        xo = xo.view(1, -1)  # Flatten x to be compatible with vanilla CROWN
+        Lambda_1 = Lambda[0]
+        Omega_1 = Omega[0]
+        # first term, constant
+        t1_u = eps * torch.sum(torch.abs(Lambda_1))
+        t1_l = -eps * torch.sum(torch.abs(Omega_1))
+        # second term, [n,j] matrix
+        # print(xo.shape)
+        # print(Lambda_1.shape)
+        # print(xo.mm(Lambda_1).shape)
+        t2_u = xo.mm(Lambda_1).view(N, J)
+        t2_l = xo.mm(Omega_1).view(N, J)
+        # third term, [n,j] matrix
+        t3_u, t3_l = torch.zeros(N*J), torch.zeros(N*J)
+        # TODO: Vectorize
+        for i in range(1, len(Lambda)):
+            # print(delta[i].shape)
+            # print(Lambda[i].shape)
+            for j in range(N*J):
+                t3_u[j] += delta[i][:, j].dot(Lambda[i][:, j])
+                t3_l[j] += theta[i][:, j].dot(Omega[i][:, j])
+        t3_u = t3_u.view(N, J)
+        t3_l = t3_l.view(N, J)
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
