@@ -13,6 +13,18 @@ from torch.autograd import Variable
 from utils import load_data, accuracy
 from models import gcn_sequential_model
 
+def test(model, features, labels, idx_test):
+    model.eval()
+    # output = model(features, adj)
+    output = model(features)
+    # loss_test = F.nll_loss(output[idx_test], labels[idx_test])
+    loss_test = F.nll_loss(F.log_softmax(output[idx_test], dim=1), labels[idx_test])
+    acc_test = accuracy(output[idx_test], labels[idx_test])
+    print("Test set results:",
+          "loss= {:.4f}".format(loss_test.item()),
+          "accuracy= {:.4f}".format(acc_test.item()))
+
+
 class PGD(object):
     def __init__(self,model):
         self.model = model
@@ -22,6 +34,7 @@ class PGD(object):
         #print(output, label_or_target)
         loss_test = F.nll_loss(F.log_softmax(output[idx_test], dim=1), labels[idx_test])
         acc_test = accuracy(output[idx_test], labels[idx_test])
+        #print(output[idx_test])
         #print(loss)
         #print(c.size(),modifier.size())
         return loss_test, acc_test
@@ -34,6 +47,7 @@ class PGD(object):
             error, acc = self.get_loss(x_adv,yi, idx_test, TARGETED)
             if (it)%1==0:
                 print(error.data.item()) 
+                print(acc.data.item()) 
             #x_adv.grad.data.zero_()
             error.backward(retain_graph=True)
             #print(gradient)
@@ -84,14 +98,16 @@ if args.cuda:
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data(args.dataset)
-
+print(idx_test)
 
 model = gcn_sequential_model(nfeat=features.shape[1],
                              nhid=args.hidden, 
                              nclass=labels.max().item() + 1,
                              adj=adj)
 
-model = torch.load("gcn_model.pth")
+model.load_state_dict(torch.load("gcn_model.pth"))
+model.eval()
+test(model, features, labels, idx_test)
 perm =  torch.randperm(idx_test.size()[0])
 idx = perm[:1]
 test_samples = idx_test[idx]
