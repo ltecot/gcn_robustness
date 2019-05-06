@@ -29,7 +29,7 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
-parser.add_argument('--small', action='store_true', default=True, # default=False,
+parser.add_argument('--small', action='store_true', default=False, # default=False,
                     help='Train a small model instead')
 parser.add_argument('--dataset', type=str, default="cora",
                     help='Dataset to be used')
@@ -44,7 +44,7 @@ if args.cuda:
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data(args.dataset)
-
+print(idx_test)
 # print(idx_train)
 # print(idx_val)
 if args.small:
@@ -134,9 +134,14 @@ for epoch in range(args.epochs):
 if args.small:
     torch.save(model, "gcn_model_small.pth")
 else:
-    torch.save(model, "gcn_model.pth")
+    torch.save(model.state_dict(), "gcn_model.pth")
 print("Optimization Finished!")
 print("Total time elapsed: {:.4f}s".format(time.time() - t_total))
 
+model = gcn_sequential_model(nfeat=features.shape[1],
+                             nhid=args.hidden, 
+                             nclass=labels.max().item() + 1,
+                             adj=adj)
+model.load_state_dict(torch.load("gcn_model.pth"))
 # Testing
 test()

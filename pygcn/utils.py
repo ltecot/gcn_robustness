@@ -120,7 +120,7 @@ def data_loader(dataset):
 
     return adj, features, labels
 
-def train_val_test_split_tabular(*arrays, train_size=0.5, val_size=0.3, test_size=0.2, stratify=None, random_state=None):
+def train_val_test_split_tabular(*arrays, train_size=0.5, val_size=0.3, test_size=0.2, stratify=None, random_state=42):
 
     """
     Split the arrays or matrices into random train, validation and test subsets.
@@ -200,6 +200,7 @@ def normalize(mx):
 
 def accuracy(output, labels):
     preds = output.max(1)[1].type_as(labels)
+    #print(preds,labels)
     correct = preds.eq(labels).double()
     correct = correct.sum()
     return correct / len(labels)
