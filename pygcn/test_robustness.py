@@ -23,7 +23,7 @@ adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each 
 # Model and optimizer
 # model = torch.load('gcn_model.pth')
 # model = torch.load('gcn_model_small.pth')
-relaxed = True
+relaxed = False
 small = True
 eps = 0.001
 

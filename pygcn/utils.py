@@ -3,6 +3,9 @@ import scipy.sparse as sp
 import torch
 from sklearn.model_selection import train_test_split
 
+def kronecker(A, B):
+    return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
+
 def generate_adj(file_name):
     fr = open(file_name,"r")
     fw = open(file_name+"_processed","w")

@@ -6,9 +6,7 @@ import torch
 import torch.nn.functional as F
 
 from pygcn.layers import GraphConvolution
-
-def kronecker(A, B):
-    return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
+from pygcn.utils import kronecker
 
 class GCNBoundsRelaxed():
     # This class mostly serves as an automatic run and storage for the bounds. All methods

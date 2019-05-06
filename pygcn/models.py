@@ -1,23 +1,8 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import GraphConvolution
 
-
-# class GCN(nn.Module):
-#     def __init__(self, nfeat, nhid, nclass, dropout):
-#         super(GCN, self).__init__()
-
-#         self.gc1 = GraphConvolution(nfeat, nhid, activation=F.relu)
-#         self.gc2 = GraphConvolution(nhid, nclass, activation=None)
-#         self.dropout = dropout
-
-#     def forward(self, x, adj):
-#         # x = F.relu(self.gc1(x, adj))
-#         x = self.gc1(x, adj)
-#         x = F.dropout(x, self.dropout, training=self.training)
-#         x = self.gc2(x, adj)
-#         # return F.log_softmax(x, dim=1)
-#         return x
+from pygcn.layers import GraphConvolution
+from pygcn.utils import kronecker
 
 def gcn_sequential_model(nfeat, nhid, nclass, adj):
     model = nn.Sequential(
@@ -25,3 +10,21 @@ def gcn_sequential_model(nfeat, nhid, nclass, adj):
         GraphConvolution(nhid, nclass, adj, activation=None)
     )
     return model
+
+# Take in a gcn model above and convert it to a sequential model
+def convert_gcn_to_feedforward(model):
+    modules = []
+    for layer in model:
+        # print(layer)
+        # print(isinstance(layer, GraphConvolution))
+        if isinstance(layer, GraphConvolution):
+            tensor_weight = kronecker(layer.adj, layer.weight)
+            new_layer = nn.Linear(tensor_weight.shape[0], tensor_weight.shape[1])
+            new_layer.weight.data = tensor_weight
+            modules.append(new_layer)
+            modules.append(nn.ReLU())
+        else:
+            raise ValueError("Only GCN layers supported.")
+    modules = modules[:-1]
+    sequential = nn.Sequential(*modules)
+    return sequential
