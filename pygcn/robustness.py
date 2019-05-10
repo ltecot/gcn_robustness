@@ -275,23 +275,11 @@ class GCNBoundsFull():
         delta = [torch.zeros(NJ, NJ)]
         theta = [torch.zeros(NJ, NJ)]
         for ind, w in reversed(list(enumerate(weights))):
-            # print(ind)
-            # ind += 1  # alphas and betas have an extra 0 element.
-            # small lambda, small omega, delta, theta, and tilde lambda + omega
-            # I = alpha_u[ind].shape[1]  # Also Lambda[0][0]
             NI = alpha_u[ind].shape[0]
-            # print(adj.shape, w.shape)
             w_vec = kronecker(adj, w)  # Massive expanded weight matrix
-            # print(w_vec.shape)
-            # lmd_l, omg_l = torch.zeros(NI, NJ), torch.zeros(NI, NJ)
-            # delta_l, theta_l = torch.zeros(NI, NJ), torch.zeros(NI, NJ)
             # lower case variables
             weight_lambda = w_vec.mm(Lambda[0])
             weight_omega = w_vec.mm(Omega[0])
-            # print(alpha_u[ind].view(-1,1).repeat(1, NJ).shape)
-            # print(alpha_l[ind].shape)
-            # print(weight_lambda.shape)
-            # print(weight_omega.shape)
             if ind - 1 != 0:
                 lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
                         alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
@@ -299,10 +287,6 @@ class GCNBoundsFull():
                         alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega < 0).float())
             else:
                 lmd_l, omg_l = torch.ones(NI, NJ), torch.ones(NI, NJ)
-            # print(beta_u[ind].shape)
-            # print(beta_l[ind].shape)
-            # print(weight_lambda.shape)
-            # print(weight_omega.shape)
             delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
                        beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
             theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
@@ -333,17 +317,12 @@ class GCNBoundsFull():
         t1_u = eps * torch.sum(torch.abs(Lambda_1))
         t1_l = -eps * torch.sum(torch.abs(Omega_1))
         # second term, [n,j] matrix
-        # print(xo.shape)
-        # print(Lambda_1.shape)
-        # print(xo.mm(Lambda_1).shape)
         t2_u = xo.mm(Lambda_1).view(N, J)
         t2_l = xo.mm(Omega_1).view(N, J)
         # third term, [n,j] matrix
         t3_u, t3_l = torch.zeros(N*J), torch.zeros(N*J)
         # TODO: Vectorize
         for i in range(1, len(Lambda)):
-            # print(delta[i].shape)
-            # print(Lambda[i].shape)
             for j in range(N*J):
                 t3_u[j] += delta[i][:, j].dot(Lambda[i][:, j])
                 t3_l[j] += theta[i][:, j].dot(Omega[i][:, j])

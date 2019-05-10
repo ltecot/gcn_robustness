@@ -21,6 +21,7 @@ def convert_gcn_to_feedforward(model):
             tensor_weight = kronecker(layer.adj, layer.weight)
             new_layer = nn.Linear(tensor_weight.shape[0], tensor_weight.shape[1])
             new_layer.weight.data = tensor_weight
+            new_layer.bias.data.fill_(0)
             modules.append(new_layer)
             modules.append(nn.ReLU())
         else:
