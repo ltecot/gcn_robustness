@@ -20,9 +20,11 @@ torch.manual_seed(42)
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
 adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each layer must have an adj, which is an issue.
 
+# print(adj)
+
 # Model and optimizer
 # model = torch.load('gcn_model.pth')
-# model = torch.load('gcn_model_small.pth')
+model = torch.load('gcn_model_small.pth')
 relaxed = False
 small = True
 eps = 0.001
@@ -40,6 +42,7 @@ if relaxed:
     bound_calc = GCNBoundsRelaxed(model, features, adj, eps)
     bounds = bound_calc.bounds
     print(bounds)
+    print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     torch.save({
                 'lower_bound': bounds[0],
                 'upper_bound': bounds[1],
@@ -48,6 +51,7 @@ else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps)
     bounds = bound_calc.bounds
     print(bounds)
+    print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     torch.save({
                 'lower_bound': bounds[0],
                 'upper_bound': bounds[1],

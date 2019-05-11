@@ -184,8 +184,12 @@ class GCNBoundsRelaxed():
         Omega_1 = Omega[0]
         J_1 = J_tilde[0]
         # first term, constant
+        # L-infty ball, dual to L1
         t1_u = eps * torch.sum(torch.abs(Lambda_1))
         t1_l = -eps * torch.sum(torch.abs(Omega_1))
+        # L1 ball, dual to L-infty
+        # t1_u = eps * torch.max(torch.abs(Lambda_1))
+        # t1_l = -eps * torch.max(torch.abs(Omega_1))
         # second term, [n,j] matrix
         t2_u = J_1.mm(xo.mm(Lambda_1))
         t2_l = J_1.mm(xo.mm(Omega_1))
@@ -197,6 +201,7 @@ class GCNBoundsRelaxed():
                 t3_u[:, j:j+1] += J_tilde[i+1].mm((lmd[i][:, :, j] * delta[i][:, :, j]).mm(Lambda[i+1][:, j:j+1]))
                 t3_l[:, j:j+1] += J_tilde[i+1].mm((omg[i][:, :, j] * theta[i][:, :, j]).mm(Omega[i+1][:, j:j+1]))
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
+        # return [t3_l, t3_u]
 
 
 class GCNBoundsFull():
@@ -280,7 +285,8 @@ class GCNBoundsFull():
             # lower case variables
             weight_lambda = w_vec.mm(Lambda[0])
             weight_omega = w_vec.mm(Omega[0])
-            if ind - 1 != 0:
+            # if ind - 1 != 0:
+            if ind != 0:
                 lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
                         alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
                 omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
@@ -311,14 +317,18 @@ class GCNBoundsFull():
         J = int(Lambda[0].shape[1] / N)
         # print(N, J)
         xo = xo.view(1, -1)  # Flatten x to be compatible with vanilla CROWN
-        Lambda_1 = Lambda[0]
-        Omega_1 = Omega[0]
+        Lambda_0 = Lambda[0]
+        Omega_0 = Omega[0]
         # first term, constant
-        t1_u = eps * torch.sum(torch.abs(Lambda_1))
-        t1_l = -eps * torch.sum(torch.abs(Omega_1))
+        # L-infty ball, dual to L1
+        t1_u = eps * torch.sum(torch.abs(Lambda_0))
+        t1_l = -eps * torch.sum(torch.abs(Omega_0))
+        # L1 ball, dual to L-infty
+        # t1_u = eps * torch.max(torch.abs(Lambda_0))
+        # t1_l = -eps * torch.max(torch.abs(Omega_0))
         # second term, [n,j] matrix
-        t2_u = xo.mm(Lambda_1).view(N, J)
-        t2_l = xo.mm(Omega_1).view(N, J)
+        t2_u = xo.mm(Lambda_0).view(N, J)
+        t2_l = xo.mm(Omega_0).view(N, J)
         # third term, [n,j] matrix
         t3_u, t3_l = torch.zeros(N*J), torch.zeros(N*J)
         # TODO: Vectorize
@@ -329,3 +339,4 @@ class GCNBoundsFull():
         t3_u = t3_u.view(N, J)
         t3_l = t3_l.view(N, J)
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
+        # return [t1_l, t1_u]
