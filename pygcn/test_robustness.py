@@ -14,8 +14,11 @@ from pygcn.utils import load_data, accuracy
 from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
 from pygcn.models import gcn_sequential_model
 
-np.random.seed(42)
-torch.manual_seed(42)
+# settings
+relaxed = False
+small = True
+# eps = 0.001
+eps = 0
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
@@ -26,11 +29,6 @@ adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each 
 # Model and optimizer
 # model = torch.load('gcn_model.pth')
 # model = torch.load('gcn_model_small.pth')
-
-relaxed = False
-small = True
-# eps = 0.001
-eps = 0
 
 if small:
     adj = adj[0:100, 0:100]

@@ -8,9 +8,20 @@
 import torch
 import torch.nn as nn
 
-from pygcn.models import convert_gcn_to_feedforward
+from pygcn.utils import load_data
+from pygcn.models import convert_gcn_to_feedforward, gcn_sequential_model
 
-model = torch.load('gcn_model_small.pth')
+# Load data
+adj, features, labels, idx_train, idx_val, idx_test = load_data()
+adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each layer must have an adj, which is an issue.
+adj = adj[0:100, 0:100]
+features = features[:100]
+labels = labels[:100]
+model = gcn_sequential_model(nfeat=features.shape[1],
+                             nhid=16,  # From train.py args 
+                             nclass=labels.max().item() + 1,
+                             adj=adj)
+model.load_state_dict(torch.load('gcn_model_small.pth'))
 linear_model = convert_gcn_to_feedforward(model)
 for layer in linear_model:
     if isinstance(layer, nn.Linear):
