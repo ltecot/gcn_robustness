@@ -185,6 +185,8 @@ class GCNBoundsRelaxed():
         J_1 = J_tilde[0]
         # first term, constant
         # L-infty ball, dual to L1
+        # jsum = torch.sum(torch.abs(J_1))
+        # print("jsum: ", jsum)
         t1_u = eps * torch.sum(torch.abs(Lambda_1))
         t1_l = -eps * torch.sum(torch.abs(Omega_1))
         # L1 ball, dual to L-infty
@@ -221,6 +223,8 @@ class GCNBoundsFull():
         # x_vec = x.view(1, -1)
         print("compute_preac_bounds")
         l, u, l_tilde, u_tilde = self.compute_preac_bounds(x, eps, weights, adj)
+        print('output 1st preactivation', adj.mm(x.mm(weights[0])).view(-1)[:10])
+        print('reference output', model(x).view(-1)[:10])
         print("compute_activation_bound_variables")
         alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
         print("compute_linear_bound_variables")
@@ -260,6 +264,7 @@ class GCNBoundsFull():
 
     @staticmethod
     def compute_activation_bound_variables(l, u):
+        # return GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
         alpha_u, alpha_l, beta_u, beta_l = GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
         # Flatten all the variables
         alpha_u_flat = [au.view(-1) for au in alpha_u]
@@ -340,3 +345,14 @@ class GCNBoundsFull():
         t3_l = t3_l.view(N, J)
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
         # return [t1_l, t1_u]
+
+
+if __name__ == "__main__":
+    x = torch.Tensor([[1.0,2.0], [2.0,1.0]])
+    weights = [torch.Tensor([[1.0, -1.0], [0.5, -0.6]])]
+    adj = torch.Tensor([[2.0, 0.0], [0.0, 1.0]])
+    eps = 0.5
+    l, u, l_tilde, u_tilde = GCNBoundsFull.compute_preac_bounds(x, eps, weights, adj)
+    print(l)
+    print(u)
+

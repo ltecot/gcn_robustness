@@ -29,7 +29,7 @@ parser.add_argument('--hidden', type=int, default=16,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
-parser.add_argument('--small', action='store_true', default=False, # default=False,
+parser.add_argument('--small', action='store_true', default=False,
                     help='Train a small model instead')
 parser.add_argument('--dataset', type=str, default="cora",
                     help='Dataset to be used')
@@ -132,7 +132,7 @@ t_total = time.time()
 for epoch in range(args.epochs):
     train(epoch)
 if args.small:
-    torch.save(model, "gcn_model_small.pth")
+    torch.save(model.state_dict(), "gcn_model_small.pth")
 else:
     torch.save(model.state_dict(), "gcn_model.pth")
 print("Optimization Finished!")
