@@ -15,10 +15,10 @@ from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
 from pygcn.models import gcn_sequential_model
 
 # settings
-relaxed = False
+relaxed = True
 small = True
-# eps = 0.001
-eps = 0
+eps = 0.001
+# eps = 0
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
@@ -49,21 +49,25 @@ else:
 # Bounds
 if relaxed:
     bound_calc = GCNBoundsRelaxed(model, features, adj, eps)
-    bounds = bound_calc.bounds
-    print(bounds)
-    print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    LB = bound_calc.LB
+    UB = bound_calc.UB
+    print("last upper: ", UB[-1])
+    print("last lower: ", LB[-1])
+    # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     torch.save({
-                'lower_bound': bounds[0],
-                'upper_bound': bounds[1],
+                'lower_bound': LB,
+                'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps)
-    bounds = bound_calc.bounds
-    print(bounds)
-    print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    LB = bound_calc.LB
+    UB = bound_calc.UB
+    print("last upper: ", UB[-1])
+    print("last lower: ", LB[-1])
+    # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     torch.save({
-                'lower_bound': bounds[0],
-                'upper_bound': bounds[1],
+                'lower_bound': LB,
+                'upper_bound': UB,
                 }, 'test_bounds_full.pt')
     # Debug
     torch.set_printoptions(profile="full")
