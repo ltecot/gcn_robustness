@@ -25,8 +25,9 @@ model.load_state_dict(torch.load('gcn_model_small.pth'))
 linear_model = convert_gcn_to_feedforward(model)
 for layer in linear_model:
     if isinstance(layer, nn.Linear):
-        print(layer.weight.shape)
+        print(layer)
 torch.save(linear_model.state_dict(), "linear_gcn_model_small.pth")
+print(linear_model.forward(features.view(1, -1)).data.view(-1))
 # torch.save(linear_model, "linear_gcn_model_small.pth")
 # print(linear_model)
 # for k, elem in linear_model.state_dict().items():
