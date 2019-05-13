@@ -18,7 +18,7 @@ from pygcn.models import gcn_sequential_model
 relaxed = False
 small = True
 # eps = 0.001
-eps = 0
+eps = 0.001
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
@@ -71,15 +71,27 @@ else: # full
                 }, 'test_bounds_full.pt')
     # Debug
     torch.set_printoptions(profile="full")
-    # print("first upper: ", UB[0])
-    # print("first lower: ", LB[0])
+    # print("Lambda: ", bound_calc.Lambda[0].shape)
+    # print("Lambda: ", bound_calc.Lambda[0][0])
+    # print("alpha length: ", len(bound_calc.alpha_u))
+    # print("first alpha upper: ", bound_calc.alpha_u[0].view(-1))
+    # print("first alpha lower: ", bound_calc.alpha_l[0].view(-1))
+    # print(bound_calc.lmd[1].shape)
+    # print("lmd shape: ", bound_calc.lmd[1].shape)
+    # print("omg shape: ", bound_calc.omg[1].shape)
+    # print("lmd: ", bound_calc.lmd[1][:, 0].view(-1).data)
+    # print("omg: ", bound_calc.omg[1][:, 0].view(-1).data)
+    # print("first upper: ", UB[0].view(-1))
+    # print("first lower: ", LB[0].view(-1))
     # lyr_l = bound_calc.l[2].view(-1)
     # lyr_u = bound_calc.u[2].view(-1)
     # for n in range(lyr_l.shape[0]):
     #     print(str(lyr_l.data[n]) + " < n_" + str(n) + " < " + str(lyr_u.data[n]))
     # # print("pre_ac up range: ", bound_calc.u[1].data.view(-1))
     # # print("pre_ac low range: ", bound_calc.l[1].data.view(-1))
-    print(model.forward(features).data.view(-1))
+    # print(model.forward(features).data.view(-1))
+    # for param in model.parameters():
+    #     print(param)
     # print("pre_ac up range: ", bound_calc.u[1].data.view(-1)[:10])
     # print("pre_ac low range: ", bound_calc.l[1].data.view(-1)[:10])
     # print("pre_ac up range: ", bound_calc.u[1].data.size())

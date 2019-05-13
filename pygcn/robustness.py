@@ -287,17 +287,20 @@ class GCNBoundsFull():
             # if ind - 1 != 0:
             # print(ind)
             # print(alpha_u[ind].shape)
-            # print(weight_lambda.shape)
+            # print("weight lambda shape: ", weight_lambda.shape)
+            # print("weight lambda: ", weight_lambda[:, 0])
+            # print("weight omega shape: ", weight_omega.shape)
+            # print("weight omega: ", weight_omega[:, 0])
             # print(len(beta_u))
             if ind != -1:
-                lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
-                        alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
-                omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
-                        alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega < 0).float())
-                delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda >= 0).float() +
-                       beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda < 0).float())
-                theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega >= 0).float() +
-                        beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega < 0).float())
+                lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
+                         alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
+                omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
+                         alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
+                delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
+                           beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
+                theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
+                           beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
             else:
                 lmd_l, omg_l = torch.ones(NI, NJ), torch.ones(NI, NJ)
             # Lambda and Omega
@@ -325,8 +328,12 @@ class GCNBoundsFull():
         Omega_0 = Omega[0]
         # first term, constant
         # L-infty ball, dual to L1
-        t1_u = eps * torch.sum(torch.abs(Lambda_0))
-        t1_l = -eps * torch.sum(torch.abs(Omega_0))
+        t1_u, t1_l = torch.zeros(N*J), torch.zeros(N*J)
+        for j in range(N*J):
+            t1_u[j] = eps * torch.sum(torch.abs(Lambda_0[:, j]))
+            t1_l[j] = -eps * torch.sum(torch.abs(Omega_0[:, j]))
+        t1_u = t1_u.view(N, J)
+        t1_l = t1_l.view(N, J)
         # L1 ball, dual to L-infty
         # t1_u = eps * torch.max(torch.abs(Lambda_0))
         # t1_l = -eps * torch.max(torch.abs(Omega_0))
