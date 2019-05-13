@@ -176,8 +176,10 @@ class GCNBoundsRelaxed():
         # L-infty ball, dual to L1
         # jsum = torch.sum(torch.abs(J_1))
         # print("jsum: ", jsum)
-        t1_u = eps * torch.sum(torch.abs(Lambda_1))
-        t1_l = -eps * torch.sum(torch.abs(Omega_1))
+        t1_u, t1_l = torch.zeros(N, J), torch.zeros(N, J)
+        for j in range(J):
+            t1_u[:, j] = eps * torch.sum(torch.abs(Lambda_1[:, j]))
+            t1_l[:, j] = -eps * torch.sum(torch.abs(Omega_1[:, j]))
         # L1 ball, dual to L-infty
         # t1_u = eps * torch.max(torch.abs(Lambda_1))
         # t1_l = -eps * torch.max(torch.abs(Omega_1))

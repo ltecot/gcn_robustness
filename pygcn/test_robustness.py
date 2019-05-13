@@ -15,7 +15,7 @@ from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
 from pygcn.models import gcn_sequential_model
 
 # settings
-relaxed = False
+relaxed = True
 small = True
 # eps = 0.001
 eps = 0.001
