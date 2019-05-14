@@ -16,10 +16,12 @@ from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
 from pygcn.models import gcn_sequential_model
 
 # settings
-relaxed = False
+relaxed = True
 small = True
 # eps = 0.001
 eps = 0.001
+targets = None
+# targets = [0, 2]
 
 # Load data
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
@@ -49,25 +51,31 @@ else:
 
 # Bounds
 if relaxed:
-    bound_calc = GCNBoundsRelaxed(model, features, adj, eps)
+    bound_calc = GCNBoundsRelaxed(model, features, adj, eps, targets)
     LB = bound_calc.LB
     UB = bound_calc.UB
-    print("last upper: ", UB[-1])
-    print("last lower: ", LB[-1])
+    # print("last upper: ", UB[-1])
+    # print("last lower: ", LB[-1])
     # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
     torch.save({
                 'lower_bound': LB,
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
-    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
-    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
 else: # full
-    bound_calc = GCNBoundsFull(model, features, adj, eps)
+    bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
     UB = bound_calc.UB
     # print("last upper: ", UB[-1].view(-1))
     # print("last lower: ", LB[-1].view(-1))
     # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
     torch.save({
                 'lower_bound': LB,
                 'upper_bound': UB,
@@ -76,9 +84,9 @@ else: # full
     torch.set_printoptions(profile="full")
 
     # 463, 466
-    print("UB: ", UB[-2].view(-1))
-    print("LB: ", LB[-2].view(-1))
-    print("UB shape: ", UB[-2].shape)
+    # print("UB: ", UB[-2].view(-1))
+    # print("LB: ", LB[-2].view(-1))
+    # print("UB shape: ", UB[-2].shape)
     # print("UB: ", UB[-2].view(-1)[556])
     # print("LB: ", LB[-2].view(-1)[556])
     # print("beta u: ", bound_calc.beta_u[-1].view(-1)[556])
@@ -89,11 +97,6 @@ else: # full
     # print("theta shape: ", bound_calc.theta[-2].shape)
     # print("delta: ", bound_calc.delta[-2][:, 463].view(-1).nonzero())
     # print("theta: ", bound_calc.theta[-2][:, 463].view(-1))
-
-    for n in range(LB[-1].view(-1).shape[0]):
-        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
-    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
-    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
 
     # print("Lambda: ", bound_calc.Lambda[0].shape)
     # print("Lambda: ", bound_calc.Lambda[0][0])

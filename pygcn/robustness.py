@@ -13,9 +13,9 @@ class GCNBoundsRelaxed():
     # are static and can be used independently of a class instance.
     # Assumes the adjacency matrix has been normalized and had the identity added.
     # This is the relaxed bounds derivation in the paper.
-    def __init__(self, model, x, adj, eps):
+    def __init__(self, model, x, adj, eps, targets=None):
         weights = self.extract_parameters(model)
-        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
         LB = [l]
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
@@ -34,6 +34,7 @@ class GCNBoundsRelaxed():
             UB.append(ub)
 
         # Store variables
+        self.targets = targets
         self.model = model
         self.x = x
         self.adj = adj
@@ -75,13 +76,22 @@ class GCNBoundsRelaxed():
     # Return l and u for each neuron preactivation. Also returns tilde variables for debug purposes.
     # Corresponds to theorem 3.1
     @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj):
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
         N = x.shape[0]
-        l = x - eps
-        u = x + eps
+        if targets:
+            l = x
+            u = x
+            for n in targets:
+                l[n] -= eps
+                u[n] += eps
+        else:
+            l = x - eps
+            u = x + eps
         # torch.set_printoptions(profile="full")
-        # print("l: ", l)
-        # print("u: ", u)
+        # print("l: ", l[0])
+        # print("u: ", u[0])
+        # print("l: ", l[50])
+        # print("u: ", u[50])
         w = weights[0]
         I, J = w.shape
         # TODO: Vectorize
@@ -220,9 +230,11 @@ class GCNBoundsFull():
     # Assumes the adjacency matrix has been normalized and had the identity added.
     # These are the full bounds in the paper using the Kronecker product. Note that this
     # can take much more computation power and memory.
-    def __init__(self, model, x, adj, eps):
+    # Targets are the data points (rows) we are applying the pertebations to. Should be list of indicies.
+    # If none, will apply pertebation to all points.
+    def __init__(self, model, x, adj, eps, targets=None):
         weights = self.extract_parameters(model)
-        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
         LB = [l]
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
@@ -241,6 +253,7 @@ class GCNBoundsFull():
             UB.append(ub)
 
         # Store variables
+        self.targets = targets
         self.model = model
         self.x = x
         self.adj = adj
@@ -271,16 +284,29 @@ class GCNBoundsFull():
         return GCNBoundsRelaxed.extract_parameters(model)
 
     @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj):
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
         # return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
         w = kronecker(adj, weights[0])
         xo = x.view(1, -1)
-        # N = x.shape[0]
+        N, I = x.shape
         NI, NJ = w.shape
+        # print(N, I, NI, NJ)
+        if targets:
+            targs_expanded = []
+            for t in targets:
+                targs_expanded += list(range(I*t, I*t+I))
+            targs = torch.Tensor(targs_expanded).long()
+        # torch.set_printoptions(profile="full")
+        # print(targs)
         Ax0 = xo.mm(w).view(-1)
         LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
         for j in range(NJ):
-            dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+            if targets is None:
+                # print(w[:, j].shape)
+                dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+            else:
+                # print(w[targs, j].shape)
+                dualnorm_Aj = torch.sum(torch.abs(w[targs, j]))  # dual of inf, 1 norm
             UB_first[j] = Ax0[j]+eps*dualnorm_Aj
             LB_first[j] = Ax0[j]-eps*dualnorm_Aj
         return LB_first, UB_first
@@ -391,7 +417,6 @@ class GCNBoundsFull():
         t3_l = t3_l.view(N, J)
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
         # return [t1_l, t1_u]
-
 
 # if __name__ == "__main__":
 #     x = torch.Tensor([[1.0,2.0], [2.0,1.0]])
