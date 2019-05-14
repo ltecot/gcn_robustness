@@ -2,6 +2,45 @@ import numpy as np
 import scipy.sparse as sp
 import torch
 from sklearn.model_selection import train_test_split
+import pickle
+
+# Util to compare matricies.
+
+# import torch
+# import torch.nn as nn
+# import torch.optim as optim
+# import torch.nn.functional as F
+# from torch.autograd import Variable
+
+# import os.path
+# import argparse
+
+# import numpy as np
+
+# with open("mnist_conv_adv_matrices.pkl", "wb") as f:
+#                 pickle.dump({'A_LB': -matrix, 'b_LB': bias}, f)
+
+# if __name__ == "__main__": 
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('--pickle1', default="../examples/mnist_conv_adv_matrices.pkl")
+#     # parser.add_argument('--pickle2', default="../../VerificationExp/fastlin_last_matrices.pkl")
+#     parser.add_argument('--pickle2', default="../../VerificationExp/crown_last_matrices.pkl")
+#     args = parser.parse_args()
+
+#     if args.pickle1 == "" or args.pickle2 == "":
+#         raise ValueError("Need to imput two pickle files.")
+
+#     pickle1 = pickle.load(open(args.pickle1, "rb"))
+#     pickle2 = pickle.load(open(args.pickle2, "rb"))
+def compare_matricies(pickle1, pickle2):
+    for k in pickle1.keys() & pickle2.keys():
+        print("Comparing", k)
+        k1 = torch.tensor(pickle1[k])
+        # print(pickle2[k])
+        k2 = torch.tensor(pickle2[k])
+        print("Difference Sum: ", torch.sum(k1 - k2))
+        print("Abs Difference Sum: ", torch.sum(torch.abs(k1 - k2)))
+        print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
 
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))

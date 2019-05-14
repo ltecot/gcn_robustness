@@ -4,18 +4,19 @@ from __future__ import print_function
 import time
 import argparse
 import numpy as np
+import pickle
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pygcn.utils import load_data, accuracy
+from pygcn.utils import load_data, accuracy, compare_matricies
 # from pygcn.models import GCN
 from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
 from pygcn.models import gcn_sequential_model
 
 # settings
-relaxed = True
+relaxed = False
 small = True
 # eps = 0.001
 eps = 0.001
@@ -58,12 +59,14 @@ if relaxed:
                 'lower_bound': LB,
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps)
     LB = bound_calc.LB
     UB = bound_calc.UB
-    print("last upper: ", UB[-1].view(-1))
-    print("last lower: ", LB[-1].view(-1))
+    # print("last upper: ", UB[-1].view(-1))
+    # print("last lower: ", LB[-1].view(-1))
     # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     torch.save({
                 'lower_bound': LB,
@@ -71,6 +74,27 @@ else: # full
                 }, 'test_bounds_full.pt')
     # Debug
     torch.set_printoptions(profile="full")
+
+    # 463, 466
+    print("UB: ", UB[-2].view(-1))
+    print("LB: ", LB[-2].view(-1))
+    print("UB shape: ", UB[-2].shape)
+    # print("UB: ", UB[-2].view(-1)[556])
+    # print("LB: ", LB[-2].view(-1)[556])
+    # print("beta u: ", bound_calc.beta_u[-1].view(-1)[556])
+    # print("beta l: ", bound_calc.beta_l[-1].view(-1)[556])
+    # print("alpha u: ", bound_calc.alpha_u[-1].view(-1)[556])
+    # print("alpha l: ", bound_calc.alpha_l[-1].view(-1)[556])
+    # print("delta shape: ", bound_calc.delta[-2].shape)
+    # print("theta shape: ", bound_calc.theta[-2].shape)
+    # print("delta: ", bound_calc.delta[-2][:, 463].view(-1).nonzero())
+    # print("theta: ", bound_calc.theta[-2][:, 463].view(-1))
+
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_matrices_eps1-1000.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+
     # print("Lambda: ", bound_calc.Lambda[0].shape)
     # print("Lambda: ", bound_calc.Lambda[0][0])
     # print("alpha length: ", len(bound_calc.alpha_u))

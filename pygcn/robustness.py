@@ -79,35 +79,53 @@ class GCNBoundsRelaxed():
         N = x.shape[0]
         l = x - eps
         u = x + eps
+        # torch.set_printoptions(profile="full")
+        # print("l: ", l)
+        # print("u: ", u)
         w = weights[0]
         I, J = w.shape
         # TODO: Vectorize
         lt, ut = torch.zeros(N, I, J), torch.zeros(N, I, J)
         for j in range(J):
-            lt[:, :, j] = (l * (w[:, j] >= 0).float().repeat(N, 1) + 
-                           u * (w[:, j] < 0).float().repeat(N, 1))
-            ut[:, :, j] = (u * (w[:, j] >= 0).float().repeat(N, 1) + 
-                           l * (w[:, j] < 0).float().repeat(N, 1))
+            lt[:, :, j] = (l * (w[:, j] > 0).float().repeat(N, 1) + 
+                           u * (w[:, j] <= 0).float().repeat(N, 1))
+            ut[:, :, j] = (u * (w[:, j] > 0).float().repeat(N, 1) + 
+                           l * (w[:, j] <= 0).float().repeat(N, 1))
         # TODO: Vectorize
         next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
+        torch.set_printoptions(profile="full")
+        # print("l: ", adj.mm(lt[:, :, j].mm(w[:,j:j+1])))
+        # print("u: ", adj.mm(lt[:, :, j].mm(w[:,j:j+1])))
         for j in range(J):
             next_l[:, j:j+1] = adj.mm(lt[:, :, j].mm(w[:,j:j+1]))  # One-element slice to keep dimensions
             next_u[:, j:j+1] = adj.mm(ut[:, :, j].mm(w[:,j:j+1]))
         return next_l, next_u
+        # torch.set_printoptions(profile="full")
+        # print("x: ", x.view(-1)[500:900])
+        # w = weights[0]
+        # N = x.shape[0]
+        # I, J = w.shape
+        # Ax0 = adj.mm(x.mm(w))
+        # LB_first, UB_first = torch.zeros(N, J), torch.zeros(N, J)
+        # for j in range(J):
+        #     dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+        #     UB_first[:, j:j+1] = Ax0[:, j:j+1]+eps*dualnorm_Aj
+        #     LB_first[:, j:j+1] = Ax0[:, j:j+1]-eps*dualnorm_Aj
+        # return LB_first, UB_first
 
     # Return lower alpha, upper alpha, lower beta, and upper beta.
     # Assumes Relu.
     # Corresponds to CROWN non-linear relaxation bounds
     @staticmethod
     def compute_activation_bound_variables(l, u):
-        alpha_u_i = torch.zeros(l.shape) + (l >= 0).float()  # Set proper values for all linear activations
-        alpha_l_i = torch.zeros(l.shape) + (l >= 0).float()
+        alpha_u_i = torch.zeros(l.shape) + (l > 0).float()  # Set proper values for all linear activations
+        alpha_l_i = torch.zeros(l.shape) + (l > 0).float()
         beta_u_i = torch.zeros(l.shape)
         beta_l_i = torch.zeros(l.shape)
         nla = (l < 0) * (u > 0)  # Indexes of all that aren't linear (non-linear activations)
         alpha_u_i[nla] = u[nla] / (u[nla] - l[nla])
         alpha_l_i[nla] = (u[nla] > -l[nla]).float()  # If u > -l, slope is 1. Otherwise 0. These are the CROWN bounds.
-        beta_u_i[nla] = -l[nla]  # alpha_u_i[nla] * (-l[nla])
+        beta_u_i[nla] = alpha_u_i[nla] * (-l[nla]) # -l[nla]
         # beta_l_i always remains 0
         return alpha_u_i, alpha_l_i, beta_u_i, beta_l_i
 
@@ -254,7 +272,18 @@ class GCNBoundsFull():
 
     @staticmethod
     def compute_first_layer_preac_bounds(x, eps, weights, adj):
-        return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
+        # return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
+        w = kronecker(adj, weights[0])
+        xo = x.view(1, -1)
+        # N = x.shape[0]
+        NI, NJ = w.shape
+        Ax0 = xo.mm(w).view(-1)
+        LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
+        for j in range(NJ):
+            dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+            UB_first[j] = Ax0[j]+eps*dualnorm_Aj
+            LB_first[j] = Ax0[j]-eps*dualnorm_Aj
+        return LB_first, UB_first
 
     @staticmethod
     def compute_activation_bound_variables(l, u):
@@ -289,8 +318,14 @@ class GCNBoundsFull():
             # if ind - 1 != 0:
             # print(ind)
             # print(alpha_u[ind].shape)
-            # print("weight lambda shape: ", weight_lambda.shape)
-            # print("weight lambda: ", weight_lambda[:, 0])
+            # if ind != -1:
+            #     torch.set_printoptions(profile="full")
+            #     print("weight_lambda: ", weight_lambda[:, 463][556])
+            #     print("w_vec: ", w_vec[:, 463])
+                # print("weight lambda shape: ", weight_lambda.shape)
+                # print("weight lambda: ", weight_lambda[:, 463])
+                # print("weight omega shape: ", weight_omega.shape)
+                # print("weight omega: ", weight_omega[:, 463])
             # print("weight omega shape: ", weight_omega.shape)
             # print("weight omega: ", weight_omega[:, 0])
             # print(len(beta_u))
@@ -308,6 +343,9 @@ class GCNBoundsFull():
             # Lambda and Omega
             Lambda_l = weight_lambda * lmd_l
             Omega_l = weight_omega * omg_l
+            # if ind != -1:
+            #     torch.set_printoptions(profile="full")
+            #     print("Lambda_l: ", Lambda_l[:, 463])
             # Prepend all variables
             Lambda = [Lambda_l] + Lambda
             Omega = [Omega_l] + Omega
@@ -355,12 +393,12 @@ class GCNBoundsFull():
         # return [t1_l, t1_u]
 
 
-if __name__ == "__main__":
-    x = torch.Tensor([[1.0,2.0], [2.0,1.0]])
-    weights = [torch.Tensor([[1.0, -1.0], [0.5, -0.6]])]
-    adj = torch.Tensor([[2.0, 0.0], [0.0, 1.0]])
-    eps = 0.5
-    l, u, l_tilde, u_tilde = GCNBoundsFull.compute_preac_bounds(x, eps, weights, adj)
-    print(l)
-    print(u)
+# if __name__ == "__main__":
+#     x = torch.Tensor([[1.0,2.0], [2.0,1.0]])
+#     weights = [torch.Tensor([[1.0, -1.0], [0.5, -0.6]])]
+#     adj = torch.Tensor([[2.0, 0.0], [0.0, 1.0]])
+#     eps = 0.5
+#     l, u, l_tilde, u_tilde = GCNBoundsFull.compute_preac_bounds(x, eps, weights, adj)
+#     print(l)
+#     print(u)
 
