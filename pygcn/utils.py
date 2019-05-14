@@ -34,13 +34,17 @@ import pickle
 #     pickle2 = pickle.load(open(args.pickle2, "rb"))
 def compare_matricies(pickle1, pickle2):
     for k in pickle1.keys() & pickle2.keys():
-        print("Comparing", k)
+        print("\n Comparing", k)
         k1 = torch.tensor(pickle1[k])
         # print(pickle2[k])
         k2 = torch.tensor(pickle2[k])
+        # print(pickle1[k].shape)
+        # print(pickle2[k].shape)
         print("Difference Sum: ", torch.sum(k1 - k2))
         print("Abs Difference Sum: ", torch.sum(torch.abs(k1 - k2)))
-        print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
+        print("Avg Sum: ", torch.sum(torch.abs(k1 - k2)) / k1.view(-1).shape[0])
+        # print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
+        print("Max Difference: ", torch.max(torch.abs(k1 - k2)))
 
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))

@@ -4,6 +4,7 @@
 
 import torch
 import torch.nn.functional as F
+import pickle 
 
 from pygcn.layers import GraphConvolution
 from pygcn.utils import kronecker
@@ -135,7 +136,8 @@ class GCNBoundsRelaxed():
         nla = (l < 0) * (u > 0)  # Indexes of all that aren't linear (non-linear activations)
         alpha_u_i[nla] = u[nla] / (u[nla] - l[nla])
         alpha_l_i[nla] = (u[nla] > -l[nla]).float()  # If u > -l, slope is 1. Otherwise 0. These are the CROWN bounds.
-        beta_u_i[nla] = alpha_u_i[nla] * (-l[nla]) # -l[nla]
+        # beta_u_i[nla] = alpha_u_i[nla] * (-l[nla])
+        beta_u_i[nla] = -l[nla]
         # beta_l_i always remains 0
         return alpha_u_i, alpha_l_i, beta_u_i, beta_l_i
 
@@ -225,6 +227,210 @@ class GCNBoundsRelaxed():
 
 
 class GCNBoundsFull():
+    # This class mostly serves as an automatic run and storage for the bounds. All methods
+    # are static and can be used independently of a class instance.
+    # Assumes the adjacency matrix has been normalized and had the identity added.
+    # These are the full bounds in the paper using the Kronecker product. Note that this
+    # can take much more computation power and memory.
+    # Targets are the data points (rows) we are applying the pertebations to. Should be list of indicies.
+    # If none, will apply pertebation to all points.
+    def __init__(self, model, x, adj, eps, targets=None):
+        weights = self.extract_parameters(model)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
+        LB = [l]
+        UB = [u]
+        alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
+        for l in range(len(weights)-1):
+            # alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
+            # Lambda, Omega, J_tilde, lmd, omg, delta, theta, lmd_tilde, omg_tilde = self.compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l)
+            # bounds = self.compute_bounds(eps, x, Lambda, Omega, J_tilde, lmd, omg, delta, theta)
+            au, al, bu, bl = self.compute_activation_bound_variables(LB[-1], UB[-1])
+            alpha_u.append(au)
+            alpha_l.append(al)
+            beta_u.append(bu)
+            beta_l.append(bl)
+            Lambda, Omega, lmd, omg, delta, theta = self.compute_linear_bound_variables(weights[:l+2], adj, alpha_u, alpha_l, beta_u, beta_l)
+            lb, ub = self.compute_bounds(eps, x, Lambda, Omega, lmd, omg, delta, theta)
+            LB.append(lb)
+            UB.append(ub)
+
+        # Store variables
+        self.targets = targets
+        self.model = model
+        self.x = x
+        self.adj = adj
+        self.eps = eps
+        self.weights = weights
+        # self.l = l
+        # self.u = u
+        # self.l_tilde = l_tilde
+        # self.u_tilde = u_tilde
+        self.alpha_u = alpha_u
+        self.alpha_l = alpha_l
+        self.beta_u = beta_u
+        self.beta_l = beta_l
+        self.Lambda = Lambda
+        self.Omega = Omega
+        self.lmd = lmd
+        self.omg = omg
+        self.delta = delta
+        self.theta = theta
+        # self.lmd_tilde = lmd_tilde
+        # self.omg_tilde = omg_tilde
+        # self.bounds = bounds
+        self.LB = LB
+        self.UB = UB
+
+    @staticmethod
+    def extract_parameters(model):
+        return GCNBoundsRelaxed.extract_parameters(model)
+
+    @staticmethod
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
+        # return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
+        w = kronecker(adj, weights[0])
+        xo = x.view(1, -1)
+        N, I = x.shape
+        NI, NJ = w.shape
+        # print(N, I, NI, NJ)
+        if targets:
+            targs_expanded = []
+            for t in targets:
+                targs_expanded += list(range(I*t, I*t+I))
+            targs = torch.Tensor(targs_expanded).long()
+        # torch.set_printoptions(profile="full")
+        # print(targs)
+        Ax0 = xo.mm(w).view(-1)
+        LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
+        for j in range(NJ):
+            if targets is None:
+                # print(w[:, j].shape)
+                dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+            else:
+                # print(w[targs, j].shape)
+                dualnorm_Aj = torch.sum(torch.abs(w[targs, j]))  # dual of inf, 1 norm
+            UB_first[j] = Ax0[j]+eps*dualnorm_Aj
+            LB_first[j] = Ax0[j]-eps*dualnorm_Aj
+        return LB_first, UB_first
+
+    @staticmethod
+    def compute_activation_bound_variables(l, u):
+        return GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
+        # alpha_u, alpha_l, beta_u, beta_l = GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
+        # Flatten all the variables
+        # alpha_u_flat = alpha_u.view(-1)
+        # alpha_l_flat = alpha_l.view(-1)
+        # beta_u_flat = beta_u.view(-1) 
+        # beta_l_flat = beta_l.view(-1) 
+        # return alpha_u_flat, alpha_l_flat, beta_u_flat, beta_l_flat
+
+    @staticmethod
+    def compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l):
+        N = adj.shape[0]
+        J = weights[-1].shape[1]
+        NJ = N * J  # Because we're vectorizing to vanilla CROWN, dimensions are now in NI x NJ.
+        Lambda = [torch.eye(NJ)]
+        Omega = [torch.eye(NJ)]
+        lmd = []
+        omg = []
+        delta = [torch.zeros(NJ, NJ)]
+        theta = [torch.zeros(NJ, NJ)]
+        for ind, w in reversed(list(enumerate(weights))):
+            ind -= 1  # weights have one more element
+            # NI = alpha_u[ind].shape[0]
+            w_vec = kronecker(adj, w)  # Massive expanded weight matrix
+            NI = w_vec.shape[0]
+            # lower case variables
+            weight_lambda = w_vec.mm(Lambda[0])
+            weight_omega = w_vec.mm(Omega[0])
+            # if ind - 1 != 0:
+            # print(ind)
+            # print(alpha_u[ind].shape)
+            # if ind != -1:
+            #     torch.set_printoptions(profile="full")
+            #     print("weight_lambda: ", weight_lambda[:, 463][556])
+            #     print("w_vec: ", w_vec[:, 463])
+                # print("weight lambda shape: ", weight_lambda.shape)
+                # print("weight lambda: ", weight_lambda[:, 463])
+                # print("weight omega shape: ", weight_omega.shape)
+                # print("weight omega: ", weight_omega[:, 463])
+            # print("weight omega shape: ", weight_omega.shape)
+            # print("weight omega: ", weight_omega[:, 0])
+            # print(len(beta_u))
+            if ind != -1:
+                lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
+                         alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
+                omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
+                         alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
+                delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
+                           beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
+                theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
+                           beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
+            else:
+                lmd_l, omg_l = torch.ones(NI, NJ), torch.ones(NI, NJ)
+            # Lambda and Omega
+            Lambda_l = weight_lambda * lmd_l
+            Omega_l = weight_omega * omg_l
+            # if ind != -1:
+            #     torch.set_printoptions(profile="full")
+            #     print("Lambda_l: ", Lambda_l[:, 463])
+            # Prepend all variables
+            Lambda = [Lambda_l] + Lambda
+            Omega = [Omega_l] + Omega
+            lmd = [lmd_l] + lmd
+            omg = [omg_l] + omg
+            if ind != -1:
+                delta = [delta_l] + delta
+                theta = [theta_l] + theta
+        return Lambda, Omega, lmd, omg, delta, theta
+
+    # Return global lower and upper bounds for each data point.
+    # Corresponds to corollary 4.3
+    @staticmethod
+    def compute_bounds(eps, xo, Lambda, Omega, lmd, omg, delta, theta):
+        N = xo.shape[0]
+        J = int(Lambda[0].shape[1] / N)
+        # print(N, J)
+        xo = xo.view(1, -1)  # Flatten x to be compatible with vanilla CROWN
+        Lambda_0 = Lambda[0]
+        Omega_0 = Omega[0]
+        # first term, constant
+        # L-infty ball, dual to L1
+        t1_u, t1_l = torch.zeros(N*J), torch.zeros(N*J)
+        for j in range(N*J):
+            t1_u[j] = eps * torch.sum(torch.abs(Lambda_0[:, j]))
+            t1_l[j] = -eps * torch.sum(torch.abs(Omega_0[:, j]))
+        t1_u = t1_u.view(N, J)
+        t1_l = t1_l.view(N, J)
+        # L1 ball, dual to L-infty
+        # t1_u = eps * torch.max(torch.abs(Lambda_0))
+        # t1_l = -eps * torch.max(torch.abs(Omega_0))
+        # second term, [n,j] matrix
+        t2_u = xo.mm(Lambda_0).view(N, J)
+        t2_l = xo.mm(Omega_0).view(N, J)
+        # third term, [n,j] matrix
+        t3_u, t3_l = torch.zeros(N*J), torch.zeros(N*J)
+        # TODO: Vectorize
+        for i in range(1, len(Lambda)):
+            for j in range(N*J):
+                t3_u[j] += delta[i-1][:, j].dot(Lambda[i][:, j]) # Delta and theta have no 0 element, so list is shifted
+                t3_l[j] += theta[i-1][:, j].dot(Omega[i][:, j])
+        t3_u = t3_u.view(N, J)
+        t3_l = t3_l.view(N, J)
+        # with open("gcn_small_bound_boundcheck_eps1-"+str(int(1/eps))+".pkl", "wb") as f:
+        #     pickle.dump({'Ax0_UB': t2_u.view(-1), 
+        #                 'Ax0_LB': t2_l.view(-1), 
+        #                 'dualnorm_ub': t1_u.view(-1), 
+        #                 'dualnorm_lb': t1_l.view(-1),
+        #                 'constants_ub': t3_u.view(-1), 
+        #                 'constants_lb': t3_l.view(-1),
+        #                 }, f)
+        return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
+        # return [t1_l, t1_u]
+
+# Special full bounds for two layers only. Specifically avoids using kronecker products
+# to improve memory usage.
+class GCNBoundsTwoLayer():
     # This class mostly serves as an automatic run and storage for the bounds. All methods
     # are static and can be used independently of a class instance.
     # Assumes the adjacency matrix has been normalized and had the identity added.
