@@ -4,7 +4,7 @@ from __future__ import print_function
 import time
 import argparse
 import numpy as np
-
+import random
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -27,7 +27,7 @@ def test(model, features, labels, idx_test):
           "loss= {:.4f}".format(loss_test.item()),
           "accuracy= {:.4f}".format(acc_test.item()))
    
-    preds = output.max(1)[1].type_as(labels)
+    preds = output[idx_test].max(1)[1].type_as(labels)
     return preds 
 
 def evaluate(data):
@@ -185,14 +185,19 @@ else:
     #perm =  torch.randperm(idx_test.size()[0])
     #idx = perm[1:2]
     n_neigh = 5
-    target_idx = select_target_node(adj[idx_test], n_neigh, preds, labels) 
+    target_idx_list = select_target_node(adj[idx_test], n_neigh, preds, labels[idx_test]) 
     #test_samples = idx_test[idx]
-    k= 100
+    #target_idx = random.choice(target_idx_list)
+    target_idx = target_idx_list[:2]
+    print("Attacking on "+str(target_idx))
+    #k= 100
     #perm =  torch.randperm(idx_train.size()[0])
     #idx = perm[:k]
     hops = 1
-    perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
+    #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
+    perturb_idx = select_perturb_node(adj, target_idx, hops, 0.1, False)
     #modified_nodes_idx = idx_train[idx]
+    print("Perturbing on ")
     print(perturb_idx)
     mask = torch.FloatTensor(features.size())
     mask.zero_()
