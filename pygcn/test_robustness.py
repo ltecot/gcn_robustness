@@ -12,7 +12,7 @@ import torch.optim as optim
 
 from pygcn.utils import load_data, accuracy, compare_matricies
 # from pygcn.models import GCN
-from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
+from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull, GCNBoundsTwoLayer
 from pygcn.models import gcn_sequential_model
 
 parser = argparse.ArgumentParser()
@@ -22,8 +22,11 @@ parser.add_argument('--relaxed',
 parser.add_argument('--small',
             action = 'store_true',
             default = False)
+parser.add_argument('--twolayer',
+            action = 'store_true',
+            default = False)
 parser.add_argument('--eps',
-            default = 0.001,
+            default = 0.01,
             type = float)
 parser.add_argument('--compare_file',
             default = "../../RecurJac-Develop/gcn_small_bound_matrices_eps1-100.pkl",
@@ -34,7 +37,7 @@ relaxed = args.relaxed
 small = args.small
 eps = args.eps
 targets = None  # TODO: add as arg.
-# targets = [0, 2]
+# targets = list(range(0, 50))
 
 # print(relaxed, small, eps)
 
@@ -50,6 +53,7 @@ adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each 
 
 if small:
     adj = adj[0:100, 0:100]
+    adj = F.normalize(adj, p=1, dim=1)  # Row-norm
     features = features[:100]
     labels = labels[:100]
     model = gcn_sequential_model(nfeat=features.shape[1],
@@ -80,6 +84,21 @@ if relaxed:
                 'lower_bound': LB,
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
+elif args.twolayer:
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets)
+    LB = bound_calc.LB
+    UB = bound_calc.UB
+    # print("last upper: ", UB[-1].view(-1))
+    # print("last lower: ", LB[-1].view(-1))
+    # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    pickle1 = pickle.load(open(args.compare_file, "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    torch.save({
+                'lower_bound': LB,
+                'upper_bound': UB,
+                }, 'test_bounds_full.pt')
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
@@ -97,13 +116,13 @@ else: # full
                 }, 'test_bounds_full.pt')
     # Debug
     torch.set_printoptions(profile="full")
-
+    # print(adj)
     # 463, 466
     # print("UB: ", UB[-2].view(-1))
     # print("LB: ", LB[-2].view(-1))
 
-    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
-    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
     # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_generalchecks_eps1-100.pkl", "rb"))
     # gc = {'upper_k': bound_calc.alpha_u[-1].view(-1), 
     #     'lower_k': bound_calc.alpha_l[-1].view(-1), 

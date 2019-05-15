@@ -18,7 +18,7 @@ def convert_gcn_to_feedforward(model):
         # print(layer)
         # print(isinstance(layer, GraphConvolution))
         if isinstance(layer, GraphConvolution):
-            tensor_weight = kronecker(layer.adj, layer.weight)
+            tensor_weight = kronecker(layer.adj.t().contiguous(), layer.weight)
             new_layer = nn.Linear(tensor_weight.shape[0], tensor_weight.shape[1])
             # new_layer = nn.Linear(tensor_weight.shape[1], tensor_weight.shape[0])
             # print(new_layer.weight.shape)

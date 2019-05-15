@@ -42,9 +42,13 @@ def compare_matricies(pickle1, pickle2):
         # print(pickle2[k].shape)
         print("Difference Sum: ", torch.sum(k1 - k2))
         print("Abs Difference Sum: ", torch.sum(torch.abs(k1 - k2)))
-        print("Avg Sum: ", torch.sum(torch.abs(k1 - k2)) / k1.view(-1).shape[0])
+        print("Avg Difference Sum: ", torch.sum(torch.abs(k1 - k2)) / k1.view(-1).shape[0])
         # print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
         print("Max Difference: ", torch.max(torch.abs(k1 - k2)))
+
+# Only takes 1D vectors
+def tensor_product(A, B):
+    return torch.einsum("a,b->ab", A, B).view(-1)
 
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))

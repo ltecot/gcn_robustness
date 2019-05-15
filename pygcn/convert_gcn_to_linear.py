@@ -7,6 +7,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from pygcn.utils import load_data
 from pygcn.models import convert_gcn_to_feedforward, gcn_sequential_model
@@ -15,6 +16,7 @@ from pygcn.models import convert_gcn_to_feedforward, gcn_sequential_model
 adj, features, labels, idx_train, idx_val, idx_test = load_data()
 adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each layer must have an adj, which is an issue.
 adj = adj[0:100, 0:100]
+adj = F.normalize(adj, p=1, dim=1)  # Row-norm
 features = features[:100]
 labels = labels[:100]
 model = gcn_sequential_model(nfeat=features.shape[1],

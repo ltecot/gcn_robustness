@@ -50,6 +50,7 @@ print(idx_test)
 if args.small:
     adj = adj.to_dense()
     adj = adj[0:100, 0:100]
+    adj = F.normalize(adj, p=1, dim=1)  # Row-norm
     # print(adj.shape)
     features = features[:100]
     labels = labels[:100]
