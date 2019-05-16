@@ -98,7 +98,10 @@ elif args.twolayer:
     torch.save({
                 'lower_bound': LB,
                 'upper_bound': UB,
-                }, 'test_bounds_full.pt')
+                }, 'test_bounds_twolayer.pt')
+    # Additional debug
+    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
@@ -121,8 +124,8 @@ else: # full
     # print("UB: ", UB[-2].view(-1))
     # print("LB: ", LB[-2].view(-1))
 
-    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
-    compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
     # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_generalchecks_eps1-100.pkl", "rb"))
     # gc = {'upper_k': bound_calc.alpha_u[-1].view(-1), 
     #     'lower_k': bound_calc.alpha_l[-1].view(-1), 
