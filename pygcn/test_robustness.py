@@ -100,8 +100,20 @@ elif args.twolayer:
                 'upper_bound': UB,
                 }, 'test_bounds_twolayer.pt')
     # Additional debug
-    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
-    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_generalchecks_eps1-100.pkl", "rb"))
+    # print(bound_calc.lmd[-1].shape)
+    gc = {'upper_k': bound_calc.alpha_u[0].view(-1), 
+        'lower_k': bound_calc.alpha_l[0].view(-1), 
+        'upper_b': bound_calc.beta_u[0].view(-1), 
+        'lower_b': bound_calc.beta_l[0].view(-1), 
+        # 'diags_ub': bound_calc.lmd[-1][:, -1], 
+        # 'diags_lb': bound_calc.omg[-1][:, -1], 
+        # 'l_ub': bound_calc.delta[-1][:, -1], 
+        # 'l_lb': bound_calc.theta[-1][:, -1], 
+    }
+    compare_matricies(pickle1, gc)
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
