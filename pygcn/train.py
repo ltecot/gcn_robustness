@@ -134,7 +134,8 @@ for epoch in range(args.epochs):
 if args.small:
     torch.save(model.state_dict(), "gcn_model_small.pth")
 else:
-    torch.save(model.state_dict(), "gcn_model.pth")
+    filename = args.dataset+"_"+str(args.hidden)+"_gcn_model.pth"
+    torch.save(model.state_dict(), filename)
 print("Optimization Finished!")
 print("Total time elapsed: {:.4f}s".format(time.time() - t_total))
 
@@ -142,6 +143,6 @@ model = gcn_sequential_model(nfeat=features.shape[1],
                              nhid=args.hidden, 
                              nclass=labels.max().item() + 1,
                              adj=adj)
-model.load_state_dict(torch.load("gcn_model.pth"))
+model.load_state_dict(torch.load(filename))
 # Testing
 test()
