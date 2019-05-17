@@ -27,8 +27,9 @@ def test(model, features, labels, idx_test):
           "loss= {:.4f}".format(loss_test.item()),
           "accuracy= {:.4f}".format(acc_test.item()))
    
-    preds = output[idx_test].max(1)[1].type_as(labels)
-    return preds 
+    preds = output[idx_test].max(1)[1].type_as(labels[idx_test])
+    #print(output[idx_test].size(), len(idx_test))
+    return preds, acc_test 
 
 def evaluate(data):
     total_loss = 0
@@ -89,10 +90,10 @@ class PGD(object):
         x_in = features
         yi = Variable(labels)
         x_adv = Variable(features, requires_grad=True)
-        for it in range(10):
+        for it in range(100):
             error, acc = self.get_loss(x_adv,yi, idx_test, TARGETED)
-            if (it)%1==0:
-                print(error.data.item(), acc.data.item()) 
+            #if (it)%1==0:
+            #    print(error.data.item(), acc.data.item()) 
             #x_adv.grad.data.zero_()
             error.backward(retain_graph=True)
             #print(gradient)
@@ -133,6 +134,20 @@ parser.add_argument('--dropout', type=float, default=0.5,
 parser.add_argument('--dataset', type=str, default="cora",
                     help='Dataset to be used')
 
+parser.add_argument('--n_neigh', type=int, default=0,
+                    help='number of neighbors of target node')
+
+parser.add_argument('--hops', type=int, default=1,
+                    help='hops of neighbors of target node')
+parser.add_argument('--epsilon', type=float, default=0.01,
+                    help='epsilon in the PGD attack')
+
+parser.add_argument('--batch_size', type=int, default=10,
+                    help='batch_size in the PGD attack')
+
+parser.add_argument('--verbose', action='store_true', default=False,
+                    help='verbose.')
+
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -145,8 +160,9 @@ if args.cuda:
 if args.dataset == "reddit":
     num_data, train_adj, full_adj, features, train_features, test_features, labels, train_d, val_d, test_d = \
             load_data(args.dataset)
-    print(labels.max().item())
+    print(features.shape)
     full_adj = torch.from_numpy(full_adj.toarray())
+    print(torch.nonzero(full_adj!=full_adj.t()))
     model = gcn_sequential_model(nfeat=features.shape[1],
                                  nhid=int(128), 
                                  nclass=41,
@@ -173,36 +189,80 @@ if args.dataset == "reddit":
 
 else:
     adj, features, labels, idx_train, idx_val, idx_test = load_data(args.dataset)
+    #print(len(idx_test)) 
+    #print(features.size())
     adj = adj.to_dense()
+    #print(torch.nonzero(adj!=adj.t()))
     model = gcn_sequential_model(nfeat=features.shape[1],
                                  nhid=args.hidden, 
                                  nclass=labels.max().item() + 1,
                                  adj=adj)
-    model_path = args.dataset+"_gcn_model.pth"
+    model_path = args.dataset+"_"+str(args.hidden)+"_gcn_model.pth"
     model.load_state_dict(torch.load(model_path))
     model.eval()
-    preds = test(model, features, labels, idx_test)
+    preds, clean_acc = test(model, features, labels, idx_test)
     #perm =  torch.randperm(idx_test.size()[0])
     #idx = perm[1:2]
-    n_neigh = 5
-    target_idx_list = select_target_node(adj[idx_test], n_neigh, preds, labels[idx_test]) 
+    n_neigh = args.n_neigh
+    target_idx_list = select_target_node(adj, n_neigh, preds, labels, idx_test)
+    #print(len(idx_test))
     #test_samples = idx_test[idx]
     #target_idx = random.choice(target_idx_list)
-    target_idx = target_idx_list[:2]
-    print("Attacking on "+str(target_idx))
+#    target_idx = target_idx_list[:5]
+#    print("Attacking on "+str(target_idx))
     #k= 100
     #perm =  torch.randperm(idx_train.size()[0])
     #idx = perm[:k]
-    hops = 1
+    #hops = args.hops
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
-    perturb_idx = select_perturb_node(adj, target_idx, hops, 0.1, False)
+    #perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+    #perturb_idx = select_perturb_node(adj, target_idx, hops, 0.1, False)
     #modified_nodes_idx = idx_train[idx]
-    print("Perturbing on ")
-    print(perturb_idx)
+    #print("Perturbing on ")
+    #print(perturb_idx)
+    #mask = torch.FloatTensor(features.size())
+    #mask.zero_()
+    #mask[perturb_idx,:] = 1
+attack = PGD(model)
+epsilon = args.epsilon
+#correct = 0
+batch_size = args.batch_size
+acc_count = 0
+for i in range(len(target_idx_list)//batch_size):
+    #if i==1:
+    #    break
+    target_idx = target_idx_list[i*batch_size:(i+1)*batch_size]
+    print("Attacking on "+str(target_idx))
+    hops = args.hops
+    #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
+    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+    #print("Perturbing on ")
+    #print(perturb_idx)
     mask = torch.FloatTensor(features.size())
     mask.zero_()
     mask[perturb_idx,:] = 1
-attack = PGD(model)
-epsilon = 0.3
-features_adv = attack(features, labels, target_idx, mask, epsilon)
+    features_adv = attack(features, labels, target_idx, mask, epsilon)
+    _, acc= test(model, features_adv, labels, target_idx)
+    acc_count += acc*batch_size
+
+if (len(target_idx_list)-(i+1)*batch_size)!= 0:
+    target_idx = target_idx_list[(i+1)*batch_size:]
+    print("Attacking on "+str(target_idx))
+    hops = args.hops
+#perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
+    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+#print("Perturbing on ")
+#print(perturb_idx)
+    mask = torch.FloatTensor(features.size())
+    mask.zero_()
+    mask[perturb_idx,:] = 1
+    features_adv = attack(features, labels, target_idx, mask, epsilon)
+    _, acc= test(model, features_adv, labels, target_idx)
+    acc_count += acc*len(target_idx)
+
+
+#print(len(idx_test))
+ave_acc = acc_count / len(idx_test)
+#print(acc_count , len(idx_test))
+print("acc_under_attack"+str(ave_acc))
 
