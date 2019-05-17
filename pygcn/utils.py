@@ -5,49 +5,6 @@ import torch
 from sklearn.model_selection import train_test_split
 import os
 from time import time
-import pickle
-
-# Util to compare matricies.
-
-# import torch
-# import torch.nn as nn
-# import torch.optim as optim
-# import torch.nn.functional as F
-# from torch.autograd import Variable
-
-# import os.path
-# import argparse
-
-# import numpy as np
-
-# with open("mnist_conv_adv_matrices.pkl", "wb") as f:
-#                 pickle.dump({'A_LB': -matrix, 'b_LB': bias}, f)
-
-# if __name__ == "__main__": 
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--pickle1', default="../examples/mnist_conv_adv_matrices.pkl")
-#     # parser.add_argument('--pickle2', default="../../VerificationExp/fastlin_last_matrices.pkl")
-#     parser.add_argument('--pickle2', default="../../VerificationExp/crown_last_matrices.pkl")
-#     args = parser.parse_args()
-
-#     if args.pickle1 == "" or args.pickle2 == "":
-#         raise ValueError("Need to imput two pickle files.")
-
-#     pickle1 = pickle.load(open(args.pickle1, "rb"))
-#     pickle2 = pickle.load(open(args.pickle2, "rb"))
-def compare_matricies(pickle1, pickle2):
-    for k in pickle1.keys() & pickle2.keys():
-        print("\n Comparing", k)
-        k1 = torch.tensor(pickle1[k])
-        # print(pickle2[k])
-        k2 = torch.tensor(pickle2[k])
-        # print(pickle1[k].shape)
-        # print(pickle2[k].shape)
-        print("Difference Sum: ", torch.sum(k1 - k2))
-        print("Abs Difference Sum: ", torch.sum(torch.abs(k1 - k2)))
-        print("Avg Sum: ", torch.sum(torch.abs(k1 - k2)) / k1.view(-1).shape[0])
-        # print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
-        print("Max Difference: ", torch.max(torch.abs(k1 - k2)))
 
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
@@ -80,7 +37,6 @@ def encode_onehot(labels, idx_dict=None):
     if idx_dict is not None:
         labels = idx_dict[labels]
     classes = sorted(set(labels))
-    #print(labels, classes)
     classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
                     enumerate(classes)}
     labels_onehot = np.array(list(map(classes_dict.get, labels)),
@@ -499,7 +455,7 @@ def load_graphsage_data(prefix, normalize=True):
 
         print("Done. {} seconds.".format(time()-start_time))
         with open(npz_file, 'wb') as fwrite:
-            print('Saving {} edges'.format(full_adj.nnz))
+            #print('Saving {} edges'.format(full_adj.nnz))
             np.savez(fwrite, num_data=num_data, 
                              train_adj_data=train_adj.data, train_adj_indices=train_adj.indices, train_adj_indptr=train_adj.indptr, train_adj_shape=train_adj.shape,
                              full_adj_data=full_adj.data, full_adj_indices=full_adj.indices, full_adj_indptr=full_adj.indptr, full_adj_shape=full_adj.shape,
