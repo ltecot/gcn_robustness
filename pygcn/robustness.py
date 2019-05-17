@@ -446,71 +446,35 @@ class GCNBoundsTwoLayer():
             theta_l[:, :, j] = (beta_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
                                 beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
 
-        # Select whether to use x-eps or x+eps for each element
-        # (So we can compute the max of the inf norm ball)
-        # xo_u, xo_l = torch.zeros(x.shape[0], x.shape[1], J), torch.zeros(x.shape[0], x.shape[1], J)
-        # wp = weights[0].mm(weights[1])  # Propagated weights
-        # print("wp: ", wp)
         UB, LB = torch.zeros(N, J), torch.zeros(N, J)
-        w0_vec = kronecker(adj.t().contiguous(), weights[0])
-        w1_vec = kronecker(adj.t().contiguous(), weights[1])
-        lmd_l_kron = (alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
-                      alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
-        omg_l_kron = (alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
-                      alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
-        # lmd_l_kron = (alpha_u[0].view(-1,1) * (w1_vec > 0).float() +
-        #               alpha_l[0].view(-1,1) * (w1_vec <= 0).float())
-        # omg_l_kron = (alpha_l[0].view(-1,1) * (w1_vec > 0).float() +
-        #               alpha_u[0].view(-1,1) * (w1_vec <= 0).float())
-        # print(w0_vec.shape)
-        # print(w1_vec.shape)
-        # print(lmd_l_kron.shape)
-        # print(omg_l_kron.shape)
-        for i in range(N):
-            for j in range(J):
-                # Upper bound
-                ub1 = adj.mm(x).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
-                ub0 = adj.mm(ub1).mm(weights[1]) # Second layer mult
-                ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1])  # bias
-                # print(lmd_l[:, :, j])
-                # print(lmd_l[:, :, j].view(-1))
-                # print(lmd_l[:, :, j].view(-1).repeat(N*J, 1))
-                # ubeps_norm = (kronecker(adj.t().contiguous(), weights[0]) * lmd_l[:, :, j].view(-1).repeat(N*J, 1)).mm(kronecker(adj.t().contiguous(), weights[1]))
-                # ubeps = eps * torch.sum(torch.abs(ubeps_norm))
-                ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)[:, i*J+j]
+        if targets is None:
+            w0_vec = kronecker(adj.t().contiguous(), weights[0])
+        else:
+            targs = torch.Tensor(targets).long()
+            w0_vec = kronecker(adj.t().contiguous()[targs], weights[0])
+        # w1_vec = kronecker(adj.t().contiguous(), weights[1])
+        # lmd_l_kron = (alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
+        #               alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
+        # omg_l_kron = (alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
+        #               alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
+        for j in range(J):
+            lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
+            omg_l_kron = omg_l[:, :, j].view(-1, 1)
+            # Upper bound
+            ub1 = adj.mm(x).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
+            ub0 = adj.mm(ub1).mm(weights[1]) # Second layer mult
+            ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1])  # bias
+            # Lower bound
+            lb1 = adj.mm(x).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
+            lb0 = adj.mm(lb1).mm(weights[1]) # Second layer mult
+            lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1])  # bias
+            for i in range(N):
+                w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
+                ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)  # [:, i*J+j:i*J+j+1]
                 ubeps = eps * torch.sum(torch.abs(ubeps_mat))
                 UB[i, j] = ubeps + ub0[i, j] + ubb[i, j]
-                # Lower bound
-                lb1 = adj.mm(x).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
-                lb0 = adj.mm(lb1).mm(weights[1]) # Second layer mult
-                lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1])  # bias
-                # lbeps_norm = (kronecker(adj.t().contiguous(), weights[0]) * omg_l[:, :, j].view(-1).repeat(N*J, 1)).mm(kronecker(adj.t().contiguous(), weights[1]))
-                lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)[:, i*J+j]
+                lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
                 lbeps = -eps * torch.sum(torch.abs(lbeps_mat))
                 LB[i, j] = lbeps + lb0[i, j] + lbb[i, j]
-        # for j in range(J):
-        #     xo_u[:, :, j] = (x + eps * (wp[:, j] > 0).float().repeat(N, 1)
-        #                     - eps * (wp[:, j] <= 0).float().repeat(N, 1))
-        #     xo_l[:, :, j] = (x - eps * (wp[:, j] > 0).float().repeat(N, 1)
-        #                     + eps * (wp[:, j] <= 0).float().repeat(N, 1))
-        #     # Upper bound
-        #     ub1 = adj.mm(xo_u[:, :, j]).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
-        #     ub0 = adj.mm(ub1).mm(weights[1]) # Second layer mult
-        #     ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1])  # bias
-        #     UB[:, j] = ub0[:, j] + ubb[:, j]
-        #     # Lower bound
-        #     lb1 = adj.mm(xo_l[:, :, j]).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
-        #     lb0 = adj.mm(lb1).mm(weights[1]) # Second layer mult
-        #     lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1])  # bias
-        #     LB[:, j] = lb0[:, j] + lbb[:, j]
-        # print("xo_u: ", xo_u)
-        # print("xo_l: ", xo_l)
-        # print("ub1: ", ub1)
-        # print("ub0: ", ub0)
-        # print("ubb: ", ubb)
-        # print("lb1: ", lb1)
-        # print("lb0: ", lb0)
-        # print("lbb: ", lbb)
-        # print("ubeps: ", ubeps)
-        # print("lbeps: ", lbeps)
+                
         return LB, UB, [lmd_l], [omg_l], [delta_l], [theta_l] 
