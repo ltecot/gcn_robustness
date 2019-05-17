@@ -5,6 +5,7 @@
 import torch
 import torch.nn.functional as F
 import pickle 
+import math
 
 from pygcn.layers import GraphConvolution
 from pygcn.utils import kronecker, tensor_product
@@ -366,8 +367,12 @@ class GCNBoundsTwoLayer():
     # are static and can be used independently of a class instance.
     # Assumes the adjacency matrix has been normalized and had the identity added.
     # This is the relaxed bounds derivation in the paper.
-    def __init__(self, model, x, adj, eps, targets=None):
-        weights = self.extract_parameters(model)
+    def __init__(self, model, x, adj, eps, targets=None, elision=False):
+        if elision:
+            gt = model.forward(x)
+        else:
+            gt = None
+        weights = self.extract_parameters(model, elision)
         l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
         LB = [l]
         UB = [u]
@@ -377,7 +382,7 @@ class GCNBoundsTwoLayer():
         alpha_l.append(al)
         beta_u.append(bu)
         beta_l.append(bl)
-        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets)
+        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, elision, gt)
         # lb, ub = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l)
         LB.append(lb)
         UB.append(ub)
@@ -406,10 +411,21 @@ class GCNBoundsTwoLayer():
     # Return the weights of each GCN layer
     # Bias not supported.
     @staticmethod
-    def extract_parameters(model):
-        return GCNBoundsRelaxed.extract_parameters(model)
+    def extract_parameters(model, elision):
+        weights = GCNBoundsRelaxed.extract_parameters(model)
         if len(weights) > 2:
             raise ValueError("Only Two GCN layers supported.")
+        # Change to elision weights
+        if elision:
+            w = weights[1]
+            J = w.shape[1]
+            w_e = -w.repeat(1, J)  # Attacker contribution
+            for j1 in range(J):
+                for j2 in range(J):
+                    w_e[:, j1*J+j2] += w[:, j1]
+            weights[1] = w_e
+        return weights
+        
 
     # Return l and u for each neuron preactivation. Also returns tilde variables for debug purposes.
     # Corresponds to theorem 3.1
@@ -428,7 +444,7 @@ class GCNBoundsTwoLayer():
     # Corresponds to theorem 4.2
     # TODO: Add targets
     @staticmethod
-    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets):
+    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, elision, gt):
         N = adj.shape[0]
         I = alpha_u[0].shape[1]
         J = weights[-1].shape[1]
@@ -446,7 +462,12 @@ class GCNBoundsTwoLayer():
             theta_l[:, :, j] = (beta_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
                                 beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
 
-        UB, LB = torch.zeros(N, J), torch.zeros(N, J)
+        if elision:
+            _, gt_c = torch.max(gt, 1)
+            J_org = int(math.sqrt(J))  # Original J
+            UB, LB = torch.zeros(N, J_org), torch.zeros(N, J_org)
+        else:
+            UB, LB = torch.zeros(N, J), torch.zeros(N, J)
         if targets is not None:
             targs = torch.Tensor(targets).long()
         else:
@@ -464,11 +485,17 @@ class GCNBoundsTwoLayer():
             lb0 = adj.mm(lb1).mm(weights[1][:, j:j+1]) # Second layer mult
             lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
             for i in targs:
+                if elision and gt_c[i] != int(j / J_org):
+                    continue
                 w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
                 ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)  # [:, i*J+j:i*J+j+1]
                 ubeps = eps * torch.sum(torch.abs(ubeps_mat))
-                UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
                 lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
                 lbeps = -eps * torch.sum(torch.abs(lbeps_mat))
-                LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
+                if elision:
+                    UB[i, j - gt_c[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
+                    LB[i, j - gt_c[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]
+                else:
+                    UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
+                    LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
         return LB[targs], UB[targs], [lmd_l], [omg_l], [delta_l], [theta_l] 

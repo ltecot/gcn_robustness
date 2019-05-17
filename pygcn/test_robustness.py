@@ -31,6 +31,9 @@ parser.add_argument('--eps',
 parser.add_argument('--compare_file',
             default = "../../RecurJac-Develop/gcn_small_bound_matrices_eps1-100.pkl",
             type = str)
+parser.add_argument('--elision',
+            action = 'store_true',
+            default = False)
 
 args = parser.parse_args()
 relaxed = args.relaxed
@@ -86,7 +89,7 @@ if relaxed:
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
 elif args.twolayer:
-    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets)
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, args.elision)
     LB = bound_calc.LB
     UB = bound_calc.UB
     # print("last upper: ", UB[-1].view(-1))
