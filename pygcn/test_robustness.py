@@ -77,12 +77,12 @@ else:
                              adj=adj)
     model.load_state_dict(torch.load('gcn_model_small.pth'))
 
-xl = None
-xu = None
-# xl = features.clone()
-# xl[0:10] = xl[0:10] - eps * 0.5
-# xu = features.clone()
-# xu[0:10] = xu[0:10] + eps * 0.5
+# xl = None
+# xu = None
+xl = features.clone()
+xl[0:10] = xl[0:10] - eps * 1
+xu = features.clone()
+xu[0:10] = xu[0:10] + eps * 1
 
 # Bounds
 if relaxed:
