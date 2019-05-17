@@ -13,6 +13,7 @@ from pygcn.utils import kronecker, tensor_product
 '''
 Notes for expiriments:
 Make sure we throw out any points who predict the wrong class.
+TODO: Should probably change elision to use the true labels rather than model prediction.
 Make sure to copy x when computing xl and xu.
 This takes a while if you give more than 100 perturb targets. Probably best to limit it to
 that number and run a bunch of small batches.

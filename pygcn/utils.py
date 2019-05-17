@@ -7,34 +7,17 @@ import os
 from time import time
 import pickle
 
-# Util to compare matricies.
+# Computes error associated with elision bound output.
+# Takes in the lower derived bounds.
+def elision_error(LB):
+    n_ep = -1e-10  # Small neg non-zero for numerical error
+    N = LB.shape[0]
+    err = 0
+    for n in range(N):
+        if torch.sum(LB[n] < n_ep) > 0:
+            err += 1
+    return err / N
 
-# import torch
-# import torch.nn as nn
-# import torch.optim as optim
-# import torch.nn.functional as F
-# from torch.autograd import Variable
-
-# import os.path
-# import argparse
-
-# import numpy as np
-
-# with open("mnist_conv_adv_matrices.pkl", "wb") as f:
-#                 pickle.dump({'A_LB': -matrix, 'b_LB': bias}, f)
-
-# if __name__ == "__main__": 
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--pickle1', default="../examples/mnist_conv_adv_matrices.pkl")
-#     # parser.add_argument('--pickle2', default="../../VerificationExp/fastlin_last_matrices.pkl")
-#     parser.add_argument('--pickle2', default="../../VerificationExp/crown_last_matrices.pkl")
-#     args = parser.parse_args()
-
-#     if args.pickle1 == "" or args.pickle2 == "":
-#         raise ValueError("Need to imput two pickle files.")
-
-#     pickle1 = pickle.load(open(args.pickle1, "rb"))
-#     pickle2 = pickle.load(open(args.pickle2, "rb"))
 def compare_matricies(pickle1, pickle2):
     for k in pickle1.keys() & pickle2.keys():
         print("\n Comparing", k)

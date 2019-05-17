@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pygcn.utils import load_data, accuracy, compare_matricies
+from pygcn.utils import load_data, accuracy, compare_matricies, elision_error
 # from pygcn.models import GCN
 from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull, GCNBoundsTwoLayer
 from pygcn.models import gcn_sequential_model
@@ -43,10 +43,10 @@ eps = args.eps
 targets = list(range(0, 2))
 # targets = [0, 1]
 # p_targets = None
-p_targets = list(range(0, 10))
+p_targets = list(range(0, 5))
 # p_targets = [0, 1]
 
-p_n = 2.0 # float('inf')
+p_n = float('inf')
 
 # print(relaxed, small, eps)
 
@@ -77,12 +77,12 @@ else:
                              adj=adj)
     model.load_state_dict(torch.load('gcn_model_small.pth'))
 
-# xl = None
-# xu = None
-xl = features.clone()
-xl[0:10] = xl[0:10] - eps * 1
-xu = features.clone()
-xu[0:10] = xu[0:10] + eps * 1
+xl = None
+xu = None
+# xl = features.clone()
+# xl[0:10] = xl[0:10] - eps * 1
+# xu = features.clone()
+# xu[0:10] = xu[0:10] + eps * 1
 
 # Bounds
 if relaxed:
@@ -109,6 +109,7 @@ elif args.twolayer:
     # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     for n in range(LB[-1].view(-1).shape[0]):
         print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    print("error: ", elision_error(LB[-1]))
     # pickle1 = pickle.load(open(args.compare_file, "rb"))
     # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
     torch.save({
