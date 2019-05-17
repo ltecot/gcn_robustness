@@ -452,28 +452,23 @@ class GCNBoundsTwoLayer():
         else:
             targs = torch.Tensor(list(range(N))).long()
         w0_vec = kronecker(adj.t().contiguous()[targs], weights[0])
-        # w1_vec = kronecker(adj.t().contiguous(), weights[1])
-        # lmd_l_kron = (alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
-        #               alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
-        # omg_l_kron = (alpha_l[0].view(-1,1).repeat(1, N*J) * (w1_vec > 0).float() +
-        #               alpha_u[0].view(-1,1).repeat(1, N*J) * (w1_vec <= 0).float())
         for j in range(J):
             lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
             omg_l_kron = omg_l[:, :, j].view(-1, 1)
             # Upper bound
             ub1 = adj.mm(x).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
-            ub0 = adj.mm(ub1).mm(weights[1]) # Second layer mult
-            ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1])  # bias
+            ub0 = adj.mm(ub1).mm(weights[1][:, j:j+1]) # Second layer mult
+            ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
             # Lower bound
             lb1 = adj.mm(x).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
-            lb0 = adj.mm(lb1).mm(weights[1]) # Second layer mult
-            lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1])  # bias
+            lb0 = adj.mm(lb1).mm(weights[1][:, j:j+1]) # Second layer mult
+            lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
             for i in targs:
                 w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
                 ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)  # [:, i*J+j:i*J+j+1]
                 ubeps = eps * torch.sum(torch.abs(ubeps_mat))
-                UB[i, j] = ubeps + ub0[i, j] + ubb[i, j]
+                UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
                 lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
                 lbeps = -eps * torch.sum(torch.abs(lbeps_mat))
-                LB[i, j] = lbeps + lb0[i, j] + lbb[i, j]
+                LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
         return LB[targs], UB[targs], [lmd_l], [omg_l], [delta_l], [theta_l] 

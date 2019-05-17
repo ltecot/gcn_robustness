@@ -36,9 +36,9 @@ args = parser.parse_args()
 relaxed = args.relaxed
 small = args.small
 eps = args.eps
-# targets = None  # TODO: add as arg.
+targets = None  # TODO: add as arg.
 # targets = list(range(0, 50))
-targets = [0, 1]
+# targets = [0, 1]
 
 # print(relaxed, small, eps)
 
