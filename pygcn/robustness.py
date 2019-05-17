@@ -69,17 +69,21 @@ class GCNBoundsRelaxed():
     # Return l and u for each neuron preactivation. Also returns tilde variables for debug purposes.
     # Corresponds to theorem 3.1
     @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets, xl=None, xu=None):
         N = x.shape[0]
         if targets is not None:
-            l = x
-            u = x
+            l = x.clone()
+            u = x.clone()
             for n in targets:
                 l[n] -= eps
                 u[n] += eps
         else:
-            l = x - eps
-            u = x + eps
+            l = x.clone() - eps
+            u = x.clone() + eps
+        if xl is not None:
+            l = xl
+        if xu is not None:
+            u = xu
         w = weights[0]
         I, J = w.shape
         # TODO: Vectorize
@@ -366,13 +370,13 @@ class GCNBoundsTwoLayer():
     # This class mostly serves as an automatic run and storage for the bounds. All methods
     # are static and can be used independently of a class instance.
     # Assumes the adjacency matrix has had the identity added and been row normalized.
-    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False):
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, xl=None, xu=None, p_n=float('inf')):
         if elision:
             gt = model.forward(x)
         else:
             gt = None
         weights = self.extract_parameters(model, elision)
-        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, xl=xl, xu=xu)
         LB = [l]
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
@@ -381,7 +385,7 @@ class GCNBoundsTwoLayer():
         alpha_l.append(al)
         beta_u.append(bu)
         beta_l.append(bl)
-        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt)
+        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n)
         LB.append(lb)
         UB.append(ub)
 
@@ -390,8 +394,11 @@ class GCNBoundsTwoLayer():
         self.perturb_targets = perturb_targets
         self.model = model
         self.x = x
+        self.xl = xl
+        self.xu = xu
         self.adj = adj
         self.eps = eps
+        self.p_n = p_n
         self.weights = weights
         self.alpha_u = alpha_u
         self.alpha_l = alpha_l
@@ -426,8 +433,8 @@ class GCNBoundsTwoLayer():
     # Return l and u for each neuron preactivation. Also returns tilde variables for debug purposes.
     # Corresponds to theorem 3.1
     @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
-        return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, xl=None, xu=None):
+        return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, xl=xl, xu=xu)
 
     # Return lower alpha, upper alpha, lower beta, and upper beta.
     # Assumes Relu.
@@ -440,7 +447,7 @@ class GCNBoundsTwoLayer():
     # Corresponds to theorem 4.2
     # TODO: Add targets
     @staticmethod
-    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt):
+    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n):
         N = adj.shape[0]
         I = alpha_u[0].shape[1]
         J = weights[-1].shape[1]
@@ -473,6 +480,7 @@ class GCNBoundsTwoLayer():
         else:
             p_targs = torch.Tensor(list(range(N))).long()
         w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
+        q_n = int(1.0/ (1.0 - 1.0/p_n)) if p_n != 1 else float('inf')
         for j in range(J):
             lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
             omg_l_kron = omg_l[:, :, j].view(-1, 1)
@@ -489,9 +497,11 @@ class GCNBoundsTwoLayer():
                     continue
                 w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
                 ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)  # [:, i*J+j:i*J+j+1]
-                ubeps = eps * torch.sum(torch.abs(ubeps_mat))
+                # ubeps = eps * torch.sum(torch.abs(ubeps_mat))
+                ubeps = eps * torch.norm(ubeps_mat, p=q_n)
                 lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
-                lbeps = -eps * torch.sum(torch.abs(lbeps_mat))
+                # lbeps = -eps * torch.sum(torch.abs(lbeps_mat))
+                lbeps = -eps * torch.norm(lbeps_mat, p=q_n)
                 if elision:
                     UB[i, j - gt_c[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
                     LB[i, j - gt_c[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]

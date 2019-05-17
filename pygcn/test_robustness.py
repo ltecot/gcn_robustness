@@ -39,12 +39,14 @@ args = parser.parse_args()
 relaxed = args.relaxed
 small = args.small
 eps = args.eps
-# targets = None  # TODO: add as arg.
-targets = list(range(0, 10))
+# targets = None
+targets = list(range(0, 2))
 # targets = [0, 1]
 # p_targets = None
-p_targets = list(range(0, 300))
+p_targets = list(range(0, 10))
 # p_targets = [0, 1]
+
+p_n = 2.0 # float('inf')
 
 # print(relaxed, small, eps)
 
@@ -75,6 +77,13 @@ else:
                              adj=adj)
     model.load_state_dict(torch.load('gcn_model_small.pth'))
 
+xl = None
+xu = None
+# xl = features.clone()
+# xl[0:10] = xl[0:10] - eps * 0.5
+# xu = features.clone()
+# xu[0:10] = xu[0:10] + eps * 0.5
+
 # Bounds
 if relaxed:
     bound_calc = GCNBoundsRelaxed(model, features, adj, eps, targets)
@@ -92,7 +101,7 @@ if relaxed:
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
 elif args.twolayer:
-    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision)
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision, xl=xl, xu=xu, p_n=p_n)
     LB = bound_calc.LB
     UB = bound_calc.UB
     # print("last upper: ", UB[-1].view(-1))
