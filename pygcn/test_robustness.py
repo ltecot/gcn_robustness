@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pygcn.utils import load_data, accuracy, compare_matricies
+from pygcn.utils import load_data, accuracy, compare_matricies, elision_error
 # from pygcn.models import GCN
-from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull
+from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull, GCNBoundsTwoLayer
 from pygcn.models import gcn_sequential_model
 
 parser = argparse.ArgumentParser()
@@ -22,19 +22,31 @@ parser.add_argument('--relaxed',
 parser.add_argument('--small',
             action = 'store_true',
             default = False)
+parser.add_argument('--twolayer',
+            action = 'store_true',
+            default = False)
 parser.add_argument('--eps',
-            default = 0.001,
+            default = 0.01,
             type = float)
 parser.add_argument('--compare_file',
             default = "../../RecurJac-Develop/gcn_small_bound_matrices_eps1-100.pkl",
             type = str)
+parser.add_argument('--elision',
+            action = 'store_true',
+            default = False)
 
 args = parser.parse_args()
 relaxed = args.relaxed
 small = args.small
 eps = args.eps
-targets = None  # TODO: add as arg.
-# targets = [0, 2]
+# targets = None
+targets = list(range(0, 2))
+# targets = [0, 1]
+# p_targets = None
+p_targets = list(range(0, 5))
+# p_targets = [0, 1]
+
+p_n = float('inf')
 
 # print(relaxed, small, eps)
 
@@ -50,6 +62,7 @@ adj = adj.to_dense()  # Temporarily to have less headaches. Also note that each 
 
 if small:
     adj = adj[0:100, 0:100]
+    adj = F.normalize(adj, p=1, dim=1)  # Row-norm
     features = features[:100]
     labels = labels[:100]
     model = gcn_sequential_model(nfeat=features.shape[1],
@@ -63,6 +76,13 @@ else:
                              nclass=labels.max().item() + 1,
                              adj=adj)
     model.load_state_dict(torch.load('gcn_model_small.pth'))
+
+xl = None
+xu = None
+# xl = features.clone()
+# xl[0:10] = xl[0:10] - eps * 1
+# xu = features.clone()
+# xu[0:10] = xu[0:10] + eps * 1
 
 # Bounds
 if relaxed:
@@ -80,6 +100,37 @@ if relaxed:
                 'lower_bound': LB,
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
+elif args.twolayer:
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision, xl=xl, xu=xu, p_n=p_n)
+    LB = bound_calc.LB
+    UB = bound_calc.UB
+    # print("last upper: ", UB[-1].view(-1))
+    # print("last lower: ", LB[-1].view(-1))
+    # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    print("error: ", elision_error(LB[-1]))
+    # pickle1 = pickle.load(open(args.compare_file, "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    torch.save({
+                'lower_bound': LB,
+                'upper_bound': UB,
+                }, 'test_bounds_twolayer.pt')
+    # Additional debug
+    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_generalchecks_eps1-100.pkl", "rb"))
+    # # print(bound_calc.lmd[-1].shape)
+    # gc = {'upper_k': bound_calc.alpha_u[0].view(-1), 
+    #     'lower_k': bound_calc.alpha_l[0].view(-1), 
+    #     'upper_b': bound_calc.beta_u[0].view(-1), 
+    #     'lower_b': bound_calc.beta_l[0].view(-1), 
+    #     # 'diags_ub': bound_calc.lmd[-1][:, -1], 
+    #     # 'diags_lb': bound_calc.omg[-1][:, -1], 
+    #     # 'l_ub': bound_calc.delta[-1][:, -1], 
+    #     # 'l_lb': bound_calc.theta[-1][:, -1], 
+    # }
+    # compare_matricies(pickle1, gc)
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
@@ -97,7 +148,7 @@ else: # full
                 }, 'test_bounds_full.pt')
     # Debug
     torch.set_printoptions(profile="full")
-
+    # print(adj)
     # 463, 466
     # print("UB: ", UB[-2].view(-1))
     # print("LB: ", LB[-2].view(-1))

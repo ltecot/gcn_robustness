@@ -5,10 +5,240 @@
 import torch
 import torch.nn.functional as F
 import pickle 
+import math
 
 from pygcn.layers import GraphConvolution
-from pygcn.utils import kronecker
+from pygcn.utils import kronecker, tensor_product
 
+'''
+Notes for expiriments:
+Make sure we throw out any points who predict the wrong class.
+TODO: Should probably change elision to use the true labels rather than model prediction.
+Make sure to copy x when computing xl and xu.
+This takes a while if you give more than 100 perturb targets. Probably best to limit it to
+that number and run a bunch of small batches.
+'''
+class GCNBoundsTwoLayer():
+    """
+    Special full bounds for two layers only. Specifically avoids using full kronecker products
+    to improve memory usage.
+    This class mostly serves as an automatic run and storage for the bounds. All methods
+    are static and can be used independently of a class instance.
+    Assumes the adjacency matrix has had the identity added and been row normalized.
+    Args:
+        model (pytorch model): 
+        x (pytorch tensor, N x I): All features of the nodes of the graph. Each row corresponds
+                                   to the features of that node. 
+        model (pytorch model): Sequential pytorch model consisting of GCN layers. See models.py
+        adj (pytorch tensor, N x N): Adjacency matrix of the model. Must be row normalized.
+        eps (float): Epsilon of the norm ball associated with the verification.
+        targets (list of int): Target nodes. All of the nodes who's indicies are in this list will
+                               have their output bounds computed and stored by this class.
+                               Will calculate all nodes if None.
+        perturb_targets (list of int): Nodes we will perturb when doing the bounds calculation.
+                                       All of the nodes who's indicies are in this list will
+                                       have their features perturbed by epsilon. If None, will
+                                       apply to all nodes.
+        elision (bool): If true, will apply the elision trick to the last layer of weights.
+                        Each returned row will show the bounds on the weights where the class
+                        predicted by the model has it's weights subtracted by the weights associated
+                        for the label in the current index.
+        xl (pytorch tensor, N x I): Manually input lower bound on the input data. Intended to allow the 
+                                    user to do feature bounding. Take care to ensure that this a copied
+                                    tensor, and not a pointer to the original data. Also make sure you only
+                                    perturb the inputs that you give in the perturb_targets list.
+        xu (pytorch tensor, N x I): Manually input upper bound on the input data. Intended to allow the 
+                                    user to do feature bounding. Take care to ensure that this a copied
+                                    tensor, and not a pointer to the original data. Also make sure you only
+                                    perturb the inputs that you give in the perturb_targets list.
+        p_n (float): The norm of the epsilon ball allowed for the input features.
+
+    Vars:
+        See all stored variables at end of __init__. Access as needed.
+        LB and UB contain the upper and lower bound respectively for each layer.
+        You probably care about the last element of each, LB[-1] and UB[-1], for the final bound.
+    """
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, xl=None, xu=None, p_n=float('inf')):
+        if elision:
+            gt = model.forward(x)
+        else:
+            gt = None
+        weights = self.extract_parameters(model, elision)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, xl=xl, xu=xu)
+        LB = [l]
+        UB = [u]
+        alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
+        au, al, bu, bl = self.compute_activation_bound_variables(LB[-1], UB[-1])
+        alpha_u.append(au)
+        alpha_l.append(al)
+        beta_u.append(bu)
+        beta_l.append(bl)
+        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n)
+        LB.append(lb)
+        UB.append(ub)
+
+        # Store variables
+        self.targets = targets
+        self.perturb_targets = perturb_targets
+        self.model = model
+        self.x = x
+        self.xl = xl
+        self.xu = xu
+        self.adj = adj
+        self.eps = eps
+        self.p_n = p_n
+        self.weights = weights
+        self.alpha_u = alpha_u
+        self.alpha_l = alpha_l
+        self.beta_u = beta_u
+        self.beta_l = beta_l
+        self.lmd = lmd
+        self.omg = omg
+        self.delta = delta
+        self.theta = theta
+        self.LB = LB
+        self.UB = UB
+
+    # Return the weights of each GCN layer
+    # Bias not supported.
+    @staticmethod
+    def extract_parameters(model, elision):
+        weights = []
+        for layer in model:
+            if isinstance(layer, GraphConvolution):
+                weights.append(layer.weight)
+            else:
+                raise ValueError("Only GCN layers supported.")
+        if len(weights) > 2:
+            raise ValueError("Only Two GCN layers supported.")
+        # Change to elision weights
+        if elision:
+            w = weights[1]
+            J = w.shape[1]
+            w_e = -w.repeat(1, J)  # Attacker contribution
+            for j1 in range(J):
+                for j2 in range(J):
+                    w_e[:, j1*J+j2] += w[:, j1]
+            weights[1] = w_e
+        return weights
+        
+    # Return l and u for each neuron preactivation in the first layer.
+    @staticmethod
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, xl=None, xu=None):
+        N = x.shape[0]
+        if perturb_targets is not None:
+            l = x.clone()
+            u = x.clone()
+            for n in perturb_targets:
+                l[n] -= eps
+                u[n] += eps
+        else:
+            l = x.clone() - eps
+            u = x.clone() + eps
+        if xl is not None:
+            l = xl
+        if xu is not None:
+            u = xu
+        w = weights[0]
+        I, J = w.shape
+        # TODO: Vectorize
+        lt, ut = torch.zeros(N, I, J), torch.zeros(N, I, J)
+        for j in range(J):
+            lt[:, :, j] = (l * (w[:, j] > 0).float().repeat(N, 1) + 
+                           u * (w[:, j] <= 0).float().repeat(N, 1))
+            ut[:, :, j] = (u * (w[:, j] > 0).float().repeat(N, 1) + 
+                           l * (w[:, j] <= 0).float().repeat(N, 1))
+        # TODO: Vectorize
+        next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
+        for j in range(J):
+            next_l[:, j:j+1] = adj.mm(lt[:, :, j]).mm(w[:,j:j+1])  # One-element slice to keep dimensions
+            next_u[:, j:j+1] = adj.mm(ut[:, :, j]).mm(w[:,j:j+1])
+        return next_l, next_u
+
+    # Return lower alpha, upper alpha, lower beta, and upper beta.
+    # Assumes Relu.
+    # Corresponds to CROWN non-linear relaxation bounds
+    @staticmethod
+    def compute_activation_bound_variables(l, u):
+        alpha_u_i = torch.zeros(l.shape) + (l > 0).float()  # Set proper values for all linear activations
+        alpha_l_i = torch.zeros(l.shape) + (l > 0).float()
+        beta_u_i = torch.zeros(l.shape)
+        beta_l_i = torch.zeros(l.shape)
+        nla = (l < 0) * (u > 0)  # Indexes of all that aren't linear (non-linear activations)
+        alpha_u_i[nla] = u[nla] / (u[nla] - l[nla])
+        alpha_l_i[nla] = (u[nla] > -l[nla]).float()  # If u > -l, slope is 1. Otherwise 0. These are the CROWN bounds.
+        beta_u_i[nla] = -l[nla]
+        # beta_l_i always remains 0
+        return alpha_u_i, alpha_l_i, beta_u_i, beta_l_i
+
+    # Computes the full bound for the second layer, plus variables used in computation.
+    @staticmethod
+    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n):
+        N = adj.shape[0]
+        I = alpha_u[0].shape[1]
+        J = weights[-1].shape[1]
+        
+        lmd_l, omg_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
+        delta_l, theta_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
+        # TODO: Vectorize
+        for j in range(J):
+            lmd_l[:, :, j] = (alpha_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                              alpha_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            omg_l[:, :, j] = (alpha_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                              alpha_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            delta_l[:, :, j] = (beta_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                                beta_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            theta_l[:, :, j] = (beta_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                                beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+
+        if elision:
+            _, gt_c = torch.max(gt, 1)
+            J_org = int(math.sqrt(J))  # Original J
+            UB, LB = torch.zeros(N, J_org), torch.zeros(N, J_org)
+        else:
+            UB, LB = torch.zeros(N, J), torch.zeros(N, J)
+        if targets is not None:
+            targs = torch.Tensor(targets).long()
+        else:
+            targs = torch.Tensor(list(range(N))).long()
+        if perturb_targets is not None:
+            p_targs = torch.Tensor(perturb_targets).long()
+        else:
+            p_targs = torch.Tensor(list(range(N))).long()
+        w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
+        q_n = int(1.0/ (1.0 - 1.0/p_n)) if p_n != 1 else float('inf')
+        for j in range(J):
+            lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
+            omg_l_kron = omg_l[:, :, j].view(-1, 1)
+            # Upper bound
+            ub1 = adj.mm(x).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
+            ub0 = adj.mm(ub1).mm(weights[1][:, j:j+1]) # Second layer mult
+            ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
+            # Lower bound
+            lb1 = adj.mm(x).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
+            lb0 = adj.mm(lb1).mm(weights[1][:, j:j+1]) # Second layer mult
+            lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
+            for i in targs:
+                if elision and gt_c[i] != int(j / J_org):
+                    continue
+                w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
+                ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)
+                ubeps = eps * torch.norm(ubeps_mat, p=q_n)
+                lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
+                lbeps = -eps * torch.norm(lbeps_mat, p=q_n)
+                if elision:
+                    UB[i, j - gt_c[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
+                    LB[i, j - gt_c[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]
+                else:
+                    UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
+                    LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
+        return LB[targs], UB[targs], [lmd_l], [omg_l], [delta_l], [theta_l] 
+
+
+# -----------------------------------------------------------------------------------------------------
+
+
+# TODO: Some errors in the bound selection via weights. Fix after theorem update.
 class GCNBoundsRelaxed():
     # This class mostly serves as an automatic run and storage for the bounds. All methods
     # are static and can be used independently of a class instance.
@@ -21,9 +251,6 @@ class GCNBoundsRelaxed():
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
         for l in range(len(weights)-1):
-            # alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
-            # Lambda, Omega, J_tilde, lmd, omg, delta, theta, lmd_tilde, omg_tilde = self.compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l)
-            # bounds = self.compute_bounds(eps, x, Lambda, Omega, J_tilde, lmd, omg, delta, theta)
             au, al, bu, bl = self.compute_activation_bound_variables(LB[-1], UB[-1])
             alpha_u.append(au)
             alpha_l.append(al)
@@ -41,10 +268,6 @@ class GCNBoundsRelaxed():
         self.adj = adj
         self.eps = eps
         self.weights = weights
-        # self.l = l
-        # self.u = u
-        # self.l_tilde = l_tilde
-        # self.u_tilde = u_tilde
         self.alpha_u = alpha_u
         self.alpha_l = alpha_l
         self.beta_u = beta_u
@@ -56,9 +279,6 @@ class GCNBoundsRelaxed():
         self.omg = omg
         self.delta = delta
         self.theta = theta
-        # self.lmd_tilde = lmd_tilde
-        # self.omg_tilde = omg_tilde
-        # self.bounds = bounds
         self.LB = LB
         self.UB = UB
 
@@ -77,22 +297,21 @@ class GCNBoundsRelaxed():
     # Return l and u for each neuron preactivation. Also returns tilde variables for debug purposes.
     # Corresponds to theorem 3.1
     @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
+    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets, xl=None, xu=None):
         N = x.shape[0]
-        if targets:
-            l = x
-            u = x
+        if targets is not None:
+            l = x.clone()
+            u = x.clone()
             for n in targets:
                 l[n] -= eps
                 u[n] += eps
         else:
-            l = x - eps
-            u = x + eps
-        # torch.set_printoptions(profile="full")
-        # print("l: ", l[0])
-        # print("u: ", u[0])
-        # print("l: ", l[50])
-        # print("u: ", u[50])
+            l = x.clone() - eps
+            u = x.clone() + eps
+        if xl is not None:
+            l = xl
+        if xu is not None:
+            u = xu
         w = weights[0]
         I, J = w.shape
         # TODO: Vectorize
@@ -104,25 +323,13 @@ class GCNBoundsRelaxed():
                            l * (w[:, j] <= 0).float().repeat(N, 1))
         # TODO: Vectorize
         next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
-        torch.set_printoptions(profile="full")
-        # print("l: ", adj.mm(lt[:, :, j].mm(w[:,j:j+1])))
-        # print("u: ", adj.mm(lt[:, :, j].mm(w[:,j:j+1])))
         for j in range(J):
-            next_l[:, j:j+1] = adj.mm(lt[:, :, j].mm(w[:,j:j+1]))  # One-element slice to keep dimensions
-            next_u[:, j:j+1] = adj.mm(ut[:, :, j].mm(w[:,j:j+1]))
+            next_l[:, j:j+1] = adj.mm(lt[:, :, j]).mm(w[:,j:j+1])  # One-element slice to keep dimensions
+            next_u[:, j:j+1] = adj.mm(ut[:, :, j]).mm(w[:,j:j+1])
         return next_l, next_u
-        # torch.set_printoptions(profile="full")
-        # print("x: ", x.view(-1)[500:900])
-        # w = weights[0]
         # N = x.shape[0]
-        # I, J = w.shape
-        # Ax0 = adj.mm(x.mm(w))
-        # LB_first, UB_first = torch.zeros(N, J), torch.zeros(N, J)
-        # for j in range(J):
-        #     dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
-        #     UB_first[:, j:j+1] = Ax0[:, j:j+1]+eps*dualnorm_Aj
-        #     LB_first[:, j:j+1] = Ax0[:, j:j+1]-eps*dualnorm_Aj
-        # return LB_first, UB_first
+        # next_l, next_u = GCNBoundsFull.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
+        # return next_l.view(N, -1), next_u.view(N, -1)
 
     # Return lower alpha, upper alpha, lower beta, and upper beta.
     # Assumes Relu.
@@ -136,7 +343,6 @@ class GCNBoundsRelaxed():
         nla = (l < 0) * (u > 0)  # Indexes of all that aren't linear (non-linear activations)
         alpha_u_i[nla] = u[nla] / (u[nla] - l[nla])
         alpha_l_i[nla] = (u[nla] > -l[nla]).float()  # If u > -l, slope is 1. Otherwise 0. These are the CROWN bounds.
-        # beta_u_i[nla] = alpha_u_i[nla] * (-l[nla])
         beta_u_i[nla] = -l[nla]
         # beta_l_i always remains 0
         return alpha_u_i, alpha_l_i, beta_u_i, beta_l_i
@@ -241,9 +447,6 @@ class GCNBoundsFull():
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
         for l in range(len(weights)-1):
-            # alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
-            # Lambda, Omega, J_tilde, lmd, omg, delta, theta, lmd_tilde, omg_tilde = self.compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l)
-            # bounds = self.compute_bounds(eps, x, Lambda, Omega, J_tilde, lmd, omg, delta, theta)
             au, al, bu, bl = self.compute_activation_bound_variables(LB[-1], UB[-1])
             alpha_u.append(au)
             alpha_l.append(al)
@@ -261,10 +464,6 @@ class GCNBoundsFull():
         self.adj = adj
         self.eps = eps
         self.weights = weights
-        # self.l = l
-        # self.u = u
-        # self.l_tilde = l_tilde
-        # self.u_tilde = u_tilde
         self.alpha_u = alpha_u
         self.alpha_l = alpha_l
         self.beta_u = beta_u
@@ -275,9 +474,6 @@ class GCNBoundsFull():
         self.omg = omg
         self.delta = delta
         self.theta = theta
-        # self.lmd_tilde = lmd_tilde
-        # self.omg_tilde = omg_tilde
-        # self.bounds = bounds
         self.LB = LB
         self.UB = UB
 
@@ -287,42 +483,30 @@ class GCNBoundsFull():
 
     @staticmethod
     def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
-        # return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
-        w = kronecker(adj, weights[0])
-        xo = x.view(1, -1)
-        N, I = x.shape
-        NI, NJ = w.shape
-        # print(N, I, NI, NJ)
-        if targets:
-            targs_expanded = []
-            for t in targets:
-                targs_expanded += list(range(I*t, I*t+I))
-            targs = torch.Tensor(targs_expanded).long()
-        # torch.set_printoptions(profile="full")
-        # print(targs)
-        Ax0 = xo.mm(w).view(-1)
-        LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
-        for j in range(NJ):
-            if targets is None:
-                # print(w[:, j].shape)
-                dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
-            else:
-                # print(w[targs, j].shape)
-                dualnorm_Aj = torch.sum(torch.abs(w[targs, j]))  # dual of inf, 1 norm
-            UB_first[j] = Ax0[j]+eps*dualnorm_Aj
-            LB_first[j] = Ax0[j]-eps*dualnorm_Aj
-        return LB_first, UB_first
+        return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
+        # w = kronecker(adj.t().contiguous(), weights[0])
+        # xo = x.view(1, -1)
+        # N, I = x.shape
+        # NI, NJ = w.shape
+        # if targets:
+        #     targs_expanded = []
+        #     for t in targets:
+        #         targs_expanded += list(range(I*t, I*t+I))
+        #     targs = torch.Tensor(targs_expanded).long()
+        # Ax0 = xo.mm(w).view(-1)
+        # LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
+        # for j in range(NJ):
+        #     if targets is None:
+        #         dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
+        #     else:
+        #         dualnorm_Aj = torch.sum(torch.abs(w[targs, j]))  # dual of inf, 1 norm
+        #     UB_first[j] = Ax0[j]+eps*dualnorm_Aj
+        #     LB_first[j] = Ax0[j]-eps*dualnorm_Aj
+        # return LB_first, UB_first
 
     @staticmethod
     def compute_activation_bound_variables(l, u):
         return GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
-        # alpha_u, alpha_l, beta_u, beta_l = GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
-        # Flatten all the variables
-        # alpha_u_flat = alpha_u.view(-1)
-        # alpha_l_flat = alpha_l.view(-1)
-        # beta_u_flat = beta_u.view(-1) 
-        # beta_l_flat = beta_l.view(-1) 
-        # return alpha_u_flat, alpha_l_flat, beta_u_flat, beta_l_flat
 
     @staticmethod
     def compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l):
@@ -337,26 +521,11 @@ class GCNBoundsFull():
         theta = [torch.zeros(NJ, NJ)]
         for ind, w in reversed(list(enumerate(weights))):
             ind -= 1  # weights have one more element
-            # NI = alpha_u[ind].shape[0]
-            w_vec = kronecker(adj, w)  # Massive expanded weight matrix
+            w_vec = kronecker(adj.t().contiguous(), w)  # Massive expanded weight matrix
             NI = w_vec.shape[0]
             # lower case variables
             weight_lambda = w_vec.mm(Lambda[0])
             weight_omega = w_vec.mm(Omega[0])
-            # if ind - 1 != 0:
-            # print(ind)
-            # print(alpha_u[ind].shape)
-            # if ind != -1:
-            #     torch.set_printoptions(profile="full")
-            #     print("weight_lambda: ", weight_lambda[:, 463][556])
-            #     print("w_vec: ", w_vec[:, 463])
-                # print("weight lambda shape: ", weight_lambda.shape)
-                # print("weight lambda: ", weight_lambda[:, 463])
-                # print("weight omega shape: ", weight_omega.shape)
-                # print("weight omega: ", weight_omega[:, 463])
-            # print("weight omega shape: ", weight_omega.shape)
-            # print("weight omega: ", weight_omega[:, 0])
-            # print(len(beta_u))
             if ind != -1:
                 lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
                          alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
@@ -371,10 +540,6 @@ class GCNBoundsFull():
             # Lambda and Omega
             Lambda_l = weight_lambda * lmd_l
             Omega_l = weight_omega * omg_l
-            # if ind != -1:
-            #     torch.set_printoptions(profile="full")
-            #     print("Lambda_l: ", Lambda_l[:, 463])
-            # Prepend all variables
             Lambda = [Lambda_l] + Lambda
             Omega = [Omega_l] + Omega
             lmd = [lmd_l] + lmd
@@ -390,7 +555,6 @@ class GCNBoundsFull():
     def compute_bounds(eps, xo, Lambda, Omega, lmd, omg, delta, theta):
         N = xo.shape[0]
         J = int(Lambda[0].shape[1] / N)
-        # print(N, J)
         xo = xo.view(1, -1)  # Flatten x to be compatible with vanilla CROWN
         Lambda_0 = Lambda[0]
         Omega_0 = Omega[0]
@@ -426,210 +590,3 @@ class GCNBoundsFull():
         #                 'constants_lb': t3_l.view(-1),
         #                 }, f)
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
-        # return [t1_l, t1_u]
-
-# Special full bounds for two layers only. Specifically avoids using kronecker products
-# to improve memory usage.
-class GCNBoundsTwoLayer():
-    # This class mostly serves as an automatic run and storage for the bounds. All methods
-    # are static and can be used independently of a class instance.
-    # Assumes the adjacency matrix has been normalized and had the identity added.
-    # These are the full bounds in the paper using the Kronecker product. Note that this
-    # can take much more computation power and memory.
-    # Targets are the data points (rows) we are applying the pertebations to. Should be list of indicies.
-    # If none, will apply pertebation to all points.
-    def __init__(self, model, x, adj, eps, targets=None):
-        weights = self.extract_parameters(model)
-        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
-        LB = [l]
-        UB = [u]
-        alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
-        for l in range(len(weights)-1):
-            # alpha_u, alpha_l, beta_u, beta_l = self.compute_activation_bound_variables(l, u)
-            # Lambda, Omega, J_tilde, lmd, omg, delta, theta, lmd_tilde, omg_tilde = self.compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l)
-            # bounds = self.compute_bounds(eps, x, Lambda, Omega, J_tilde, lmd, omg, delta, theta)
-            au, al, bu, bl = self.compute_activation_bound_variables(LB[-1], UB[-1])
-            alpha_u.append(au)
-            alpha_l.append(al)
-            beta_u.append(bu)
-            beta_l.append(bl)
-            Lambda, Omega, lmd, omg, delta, theta = self.compute_linear_bound_variables(weights[:l+2], adj, alpha_u, alpha_l, beta_u, beta_l)
-            lb, ub = self.compute_bounds(eps, x, Lambda, Omega, lmd, omg, delta, theta)
-            LB.append(lb)
-            UB.append(ub)
-
-        # Store variables
-        self.targets = targets
-        self.model = model
-        self.x = x
-        self.adj = adj
-        self.eps = eps
-        self.weights = weights
-        # self.l = l
-        # self.u = u
-        # self.l_tilde = l_tilde
-        # self.u_tilde = u_tilde
-        self.alpha_u = alpha_u
-        self.alpha_l = alpha_l
-        self.beta_u = beta_u
-        self.beta_l = beta_l
-        self.Lambda = Lambda
-        self.Omega = Omega
-        self.lmd = lmd
-        self.omg = omg
-        self.delta = delta
-        self.theta = theta
-        # self.lmd_tilde = lmd_tilde
-        # self.omg_tilde = omg_tilde
-        # self.bounds = bounds
-        self.LB = LB
-        self.UB = UB
-
-    @staticmethod
-    def extract_parameters(model):
-        return GCNBoundsRelaxed.extract_parameters(model)
-
-    @staticmethod
-    def compute_first_layer_preac_bounds(x, eps, weights, adj, targets):
-        # return GCNBoundsRelaxed.compute_first_layer_preac_bounds(x, eps, weights, adj)
-        w = kronecker(adj, weights[0])
-        xo = x.view(1, -1)
-        N, I = x.shape
-        NI, NJ = w.shape
-        # print(N, I, NI, NJ)
-        if targets:
-            targs_expanded = []
-            for t in targets:
-                targs_expanded += list(range(I*t, I*t+I))
-            targs = torch.Tensor(targs_expanded).long()
-        # torch.set_printoptions(profile="full")
-        # print(targs)
-        Ax0 = xo.mm(w).view(-1)
-        LB_first, UB_first = torch.zeros(NJ), torch.zeros(NJ)
-        for j in range(NJ):
-            if targets is None:
-                # print(w[:, j].shape)
-                dualnorm_Aj = torch.sum(torch.abs(w[:, j]))  # dual of inf, 1 norm
-            else:
-                # print(w[targs, j].shape)
-                dualnorm_Aj = torch.sum(torch.abs(w[targs, j]))  # dual of inf, 1 norm
-            UB_first[j] = Ax0[j]+eps*dualnorm_Aj
-            LB_first[j] = Ax0[j]-eps*dualnorm_Aj
-        return LB_first, UB_first
-
-    @staticmethod
-    def compute_activation_bound_variables(l, u):
-        return GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
-        # alpha_u, alpha_l, beta_u, beta_l = GCNBoundsRelaxed.compute_activation_bound_variables(l, u)
-        # Flatten all the variables
-        # alpha_u_flat = alpha_u.view(-1)
-        # alpha_l_flat = alpha_l.view(-1)
-        # beta_u_flat = beta_u.view(-1) 
-        # beta_l_flat = beta_l.view(-1) 
-        # return alpha_u_flat, alpha_l_flat, beta_u_flat, beta_l_flat
-
-    @staticmethod
-    def compute_linear_bound_variables(weights, adj, alpha_u, alpha_l, beta_u, beta_l):
-        N = adj.shape[0]
-        J = weights[-1].shape[1]
-        NJ = N * J  # Because we're vectorizing to vanilla CROWN, dimensions are now in NI x NJ.
-        Lambda = [torch.eye(NJ)]
-        Omega = [torch.eye(NJ)]
-        lmd = []
-        omg = []
-        delta = [torch.zeros(NJ, NJ)]
-        theta = [torch.zeros(NJ, NJ)]
-        for ind, w in reversed(list(enumerate(weights))):
-            ind -= 1  # weights have one more element
-            # NI = alpha_u[ind].shape[0]
-            w_vec = kronecker(adj, w)  # Massive expanded weight matrix
-            NI = w_vec.shape[0]
-            # lower case variables
-            weight_lambda = w_vec.mm(Lambda[0])
-            weight_omega = w_vec.mm(Omega[0])
-            # if ind - 1 != 0:
-            # print(ind)
-            # print(alpha_u[ind].shape)
-            # if ind != -1:
-            #     torch.set_printoptions(profile="full")
-            #     print("weight_lambda: ", weight_lambda[:, 463][556])
-            #     print("w_vec: ", w_vec[:, 463])
-                # print("weight lambda shape: ", weight_lambda.shape)
-                # print("weight lambda: ", weight_lambda[:, 463])
-                # print("weight omega shape: ", weight_omega.shape)
-                # print("weight omega: ", weight_omega[:, 463])
-            # print("weight omega shape: ", weight_omega.shape)
-            # print("weight omega: ", weight_omega[:, 0])
-            # print(len(beta_u))
-            if ind != -1:
-                lmd_l = (alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
-                         alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
-                omg_l = (alpha_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
-                         alpha_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
-                delta_l = (beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_lambda > 0).float() +
-                           beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_lambda <= 0).float())
-                theta_l = (beta_l[ind].view(-1,1).repeat(1, NJ) * (weight_omega > 0).float() +
-                           beta_u[ind].view(-1,1).repeat(1, NJ) * (weight_omega <= 0).float())
-            else:
-                lmd_l, omg_l = torch.ones(NI, NJ), torch.ones(NI, NJ)
-            # Lambda and Omega
-            Lambda_l = weight_lambda * lmd_l
-            Omega_l = weight_omega * omg_l
-            # if ind != -1:
-            #     torch.set_printoptions(profile="full")
-            #     print("Lambda_l: ", Lambda_l[:, 463])
-            # Prepend all variables
-            Lambda = [Lambda_l] + Lambda
-            Omega = [Omega_l] + Omega
-            lmd = [lmd_l] + lmd
-            omg = [omg_l] + omg
-            if ind != -1:
-                delta = [delta_l] + delta
-                theta = [theta_l] + theta
-        return Lambda, Omega, lmd, omg, delta, theta
-
-    # Return global lower and upper bounds for each data point.
-    # Corresponds to corollary 4.3
-    @staticmethod
-    def compute_bounds(eps, xo, Lambda, Omega, lmd, omg, delta, theta):
-        N = xo.shape[0]
-        J = int(Lambda[0].shape[1] / N)
-        # print(N, J)
-        xo = xo.view(1, -1)  # Flatten x to be compatible with vanilla CROWN
-        Lambda_0 = Lambda[0]
-        Omega_0 = Omega[0]
-        # first term, constant
-        # L-infty ball, dual to L1
-        t1_u, t1_l = torch.zeros(N*J), torch.zeros(N*J)
-        for j in range(N*J):
-            t1_u[j] = eps * torch.sum(torch.abs(Lambda_0[:, j]))
-            t1_l[j] = -eps * torch.sum(torch.abs(Omega_0[:, j]))
-        t1_u = t1_u.view(N, J)
-        t1_l = t1_l.view(N, J)
-        # L1 ball, dual to L-infty
-        # t1_u = eps * torch.max(torch.abs(Lambda_0))
-        # t1_l = -eps * torch.max(torch.abs(Omega_0))
-        # second term, [n,j] matrix
-        t2_u = xo.mm(Lambda_0).view(N, J)
-        t2_l = xo.mm(Omega_0).view(N, J)
-        # third term, [n,j] matrix
-        t3_u, t3_l = torch.zeros(N*J), torch.zeros(N*J)
-        # TODO: Vectorize
-        for i in range(1, len(Lambda)):
-            for j in range(N*J):
-                t3_u[j] += delta[i-1][:, j].dot(Lambda[i][:, j]) # Delta and theta have no 0 element, so list is shifted
-                t3_l[j] += theta[i-1][:, j].dot(Omega[i][:, j])
-        t3_u = t3_u.view(N, J)
-        t3_l = t3_l.view(N, J)
-        return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
-        # return [t1_l, t1_u]
-
-# if __name__ == "__main__":
-#     x = torch.Tensor([[1.0,2.0], [2.0,1.0]])
-#     weights = [torch.Tensor([[1.0, -1.0], [0.5, -0.6]])]
-#     adj = torch.Tensor([[2.0, 0.0], [0.0, 1.0]])
-#     eps = 0.5
-#     l, u, l_tilde, u_tilde = GCNBoundsFull.compute_preac_bounds(x, eps, weights, adj)
-#     print(l)
-#     print(u)
-

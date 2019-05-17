@@ -5,6 +5,36 @@ import torch
 from sklearn.model_selection import train_test_split
 import os
 from time import time
+import pickle
+
+# Computes error associated with elision bound output.
+# Takes in the lower derived bounds.
+def elision_error(LB):
+    n_ep = -1e-10  # Small neg non-zero for numerical error
+    N = LB.shape[0]
+    err = 0
+    for n in range(N):
+        if torch.sum(LB[n] < n_ep) > 0:
+            err += 1
+    return err / N
+
+def compare_matricies(pickle1, pickle2):
+    for k in pickle1.keys() & pickle2.keys():
+        print("\n Comparing", k)
+        k1 = torch.tensor(pickle1[k])
+        # print(pickle2[k])
+        k2 = torch.tensor(pickle2[k])
+        # print(k1.shape)
+        # print(k2.shape)
+        print("Difference Sum: ", torch.sum(k1 - k2))
+        print("Abs Difference Sum: ", torch.sum(torch.abs(k1 - k2)))
+        print("Avg Difference Sum: ", torch.sum(torch.abs(k1 - k2)) / k1.view(-1).shape[0])
+        # print("Max Difference: ", torch.max(torch.abs(k1 - k2), 0))
+        print("Max Difference: ", torch.max(torch.abs(k1 - k2)))
+
+# Only takes 1D vectors
+def tensor_product(A, B):
+    return torch.einsum("a,b->ab", A, B).view(-1)
 
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
