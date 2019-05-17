@@ -40,9 +40,11 @@ class GCNBoundsTwoLayer():
                                        have their features perturbed by epsilon. If None, will
                                        apply to all nodes.
         elision (bool): If true, will apply the elision trick to the last layer of weights.
-                        Each returned row will show the bounds on the weights where the class
-                        predicted by the model has it's weights subtracted by the weights associated
+                        Each returned row will show the bounds on the weights where the ground 
+                        truth class has it's weights subtracted by the weights associated
                         for the label in the current index.
+        labels (pytorch tensor, N x J): Labels used to determine ground truth for elision weights.
+                                        If None, uses the model's predictions as "ground truth".
         xl (pytorch tensor, N x I): Manually input lower bound on the input data. Intended to allow the 
                                     user to do feature bounding. Take care to ensure that this a copied
                                     tensor, and not a pointer to the original data. Also make sure you only
@@ -58,9 +60,12 @@ class GCNBoundsTwoLayer():
         LB and UB contain the upper and lower bound respectively for each layer.
         You probably care about the last element of each, LB[-1] and UB[-1], for the final bound.
     """
-    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, xl=None, xu=None, p_n=float('inf')):
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, labels=None, xl=None, xu=None, p_n=float('inf')):
         if elision:
-            gt = model.forward(x)
+            if labels is not None:
+                gt = labels
+            else:
+                _, gt = torch.max(model.forward(x), 1)
         else:
             gt = None
         weights = self.extract_parameters(model, elision)
@@ -78,15 +83,18 @@ class GCNBoundsTwoLayer():
         UB.append(ub)
 
         # Store variables
-        self.targets = targets
-        self.perturb_targets = perturb_targets
         self.model = model
         self.x = x
-        self.xl = xl
-        self.xu = xu
         self.adj = adj
         self.eps = eps
+        self.targets = targets
+        self.perturb_targets = perturb_targets
+        self.elision = elision
+        self.labels = gt
+        self.xl = xl
+        self.xu = xu
         self.p_n = p_n
+        
         self.weights = weights
         self.alpha_u = alpha_u
         self.alpha_l = alpha_l
@@ -192,7 +200,6 @@ class GCNBoundsTwoLayer():
                                 beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
 
         if elision:
-            _, gt_c = torch.max(gt, 1)
             J_org = int(math.sqrt(J))  # Original J
             UB, LB = torch.zeros(N, J_org), torch.zeros(N, J_org)
         else:
@@ -219,7 +226,7 @@ class GCNBoundsTwoLayer():
             lb0 = adj.mm(lb1).mm(weights[1][:, j:j+1]) # Second layer mult
             lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
             for i in targs:
-                if elision and gt_c[i] != int(j / J_org):
+                if elision and gt[i] != int(j / J_org):
                     continue
                 w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
                 ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)
@@ -227,8 +234,8 @@ class GCNBoundsTwoLayer():
                 lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
                 lbeps = -eps * torch.norm(lbeps_mat, p=q_n)
                 if elision:
-                    UB[i, j - gt_c[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
-                    LB[i, j - gt_c[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]
+                    UB[i, j - gt[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
+                    LB[i, j - gt[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]
                 else:
                     UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
                     LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]

@@ -83,6 +83,8 @@ xu = None
 # xl[0:10] = xl[0:10] - eps * 1
 # xu = features.clone()
 # xu[0:10] = xu[0:10] + eps * 1
+labels = None
+# print(labels)
 
 # Bounds
 if relaxed:
@@ -101,7 +103,7 @@ if relaxed:
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
 elif args.twolayer:
-    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision, xl=xl, xu=xu, p_n=p_n)
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision, labels=labels, xl=xl, xu=xu, p_n=p_n)
     LB = bound_calc.LB
     UB = bound_calc.UB
     # print("last upper: ", UB[-1].view(-1))
