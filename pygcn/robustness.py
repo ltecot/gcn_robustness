@@ -360,20 +360,19 @@ class GCNBoundsFull():
         return [t1_l + t2_l + t3_l, t1_u + t2_u + t3_u]
 
 
-# Special full bounds for two layers only. Specifically avoids using kronecker products
+# Special full bounds for two layers only. Specifically avoids using full kronecker products
 # to improve memory usage.
 class GCNBoundsTwoLayer():
-# This class mostly serves as an automatic run and storage for the bounds. All methods
+    # This class mostly serves as an automatic run and storage for the bounds. All methods
     # are static and can be used independently of a class instance.
-    # Assumes the adjacency matrix has been normalized and had the identity added.
-    # This is the relaxed bounds derivation in the paper.
-    def __init__(self, model, x, adj, eps, targets=None, elision=False):
+    # Assumes the adjacency matrix has had the identity added and been row normalized.
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False):
         if elision:
             gt = model.forward(x)
         else:
             gt = None
         weights = self.extract_parameters(model, elision)
-        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, targets)
+        l, u = self.compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets)
         LB = [l]
         UB = [u]
         alpha_u, alpha_l, beta_u, beta_l = [], [], [], []
@@ -382,13 +381,13 @@ class GCNBoundsTwoLayer():
         alpha_l.append(al)
         beta_u.append(bu)
         beta_l.append(bl)
-        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, elision, gt)
-        # lb, ub = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l)
+        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt)
         LB.append(lb)
         UB.append(ub)
 
         # Store variables
         self.targets = targets
+        self.perturb_targets = perturb_targets
         self.model = model
         self.x = x
         self.adj = adj
@@ -398,9 +397,6 @@ class GCNBoundsTwoLayer():
         self.alpha_l = alpha_l
         self.beta_u = beta_u
         self.beta_l = beta_l
-        # self.Lambda = Lambda
-        # self.Omega = Omega
-        # self.J_tilde = J_tilde
         self.lmd = lmd
         self.omg = omg
         self.delta = delta
@@ -444,7 +440,7 @@ class GCNBoundsTwoLayer():
     # Corresponds to theorem 4.2
     # TODO: Add targets
     @staticmethod
-    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, elision, gt):
+    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt):
         N = adj.shape[0]
         I = alpha_u[0].shape[1]
         J = weights[-1].shape[1]
@@ -472,7 +468,11 @@ class GCNBoundsTwoLayer():
             targs = torch.Tensor(targets).long()
         else:
             targs = torch.Tensor(list(range(N))).long()
-        w0_vec = kronecker(adj.t().contiguous()[targs], weights[0])
+        if perturb_targets is not None:
+            p_targs = torch.Tensor(perturb_targets).long()
+        else:
+            p_targs = torch.Tensor(list(range(N))).long()
+        w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
         for j in range(J):
             lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
             omg_l_kron = omg_l[:, :, j].view(-1, 1)
