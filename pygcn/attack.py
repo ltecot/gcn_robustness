@@ -227,42 +227,43 @@ attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
 batch_size = args.batch_size
-acc_count = 0
+err_count = 0
 for i in range(len(target_idx_list)//batch_size):
-    #if i==1:
-    #    break
+    if i==10:
+        break
     target_idx = target_idx_list[i*batch_size:(i+1)*batch_size]
     print("Attacking on "+str(target_idx))
     hops = args.hops
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
     perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
-    #print("Perturbing on ")
+    print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)
     mask = torch.FloatTensor(features.size())
     mask.zero_()
     mask[perturb_idx,:] = 1
     features_adv = attack(features, labels, target_idx, mask, epsilon)
     _, acc= test(model, features_adv, labels, target_idx)
-    acc_count += acc*batch_size
+    err_count += (1-acc)*batch_size
 
-if (len(target_idx_list)-(i+1)*batch_size)!= 0:
-    target_idx = target_idx_list[(i+1)*batch_size:]
-    print("Attacking on "+str(target_idx))
-    hops = args.hops
+#if (len(target_idx_list)-(i+1)*batch_size)!= 0:
+#    target_idx = target_idx_list[(i+1)*batch_size:]
+#    print("Attacking on "+str(target_idx))
+#    hops = args.hops
 #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
-    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+#    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
 #print("Perturbing on ")
 #print(perturb_idx)
-    mask = torch.FloatTensor(features.size())
-    mask.zero_()
-    mask[perturb_idx,:] = 1
-    features_adv = attack(features, labels, target_idx, mask, epsilon)
-    _, acc= test(model, features_adv, labels, target_idx)
-    acc_count += acc*len(target_idx)
+#    mask = torch.FloatTensor(features.size())
+#    mask.zero_()
+#    mask[perturb_idx,:] = 1
+#    features_adv = attack(features, labels, target_idx, mask, epsilon)
+#    _, acc= test(model, features_adv, labels, target_idx)
+#    acc_count += acc*len(target_idx)
 
 
 #print(len(idx_test))
-ave_acc = acc_count / len(idx_test)
+#ave_acc = acc_count / len(idx_test)
 #print(acc_count , len(idx_test))
-print("acc_under_attack"+str(ave_acc))
-
+#print("acc_under_attack"+str(ave_acc))
+ave_err = err_count/(10*batch_size)
+print("err_under_attack"+str(ave_err))

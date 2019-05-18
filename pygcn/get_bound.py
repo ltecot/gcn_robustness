@@ -229,10 +229,10 @@ attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
 batch_size = args.batch_size
-acc_count = 0
+err_count = 0
 for i in range(len(target_idx_list)//batch_size):
-    #if i==1:
-    #    break
+    if i==10:
+        break
     target_idx = target_idx_list[i*batch_size:(i+1)*batch_size]
     print("Attacking on "+str(target_idx))
     hops = args.hops
@@ -253,34 +253,36 @@ for i in range(len(target_idx_list)//batch_size):
     UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
     error = elision_error(LB[-1])
-    acc_count += (1-error)*batch_size
-
-if (len(target_idx_list)-(i+1)*batch_size)!= 0:
-    target_idx = target_idx_list[(i+1)*batch_size:]
-    print("Attacking on "+str(target_idx))
-    hops = args.hops
+    err_count += error*batch_size
+    #print(err_count)
+#if (len(target_idx_list)-(i+1)*batch_size)!= 0:
+#    target_idx = target_idx_list[(i+1)*batch_size:]
+#    print("Attacking on "+str(target_idx))
+#    hops = args.hops
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
-    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
-    perturb_idx = perturb_idx.numpy()
+#    perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+#    perturb_idx = perturb_idx.numpy()
     #print("Perturbing on ")
     #print(perturb_idx)
-    mask = torch.FloatTensor(features.size())
-    mask.zero_()
-    mask[perturb_idx,:] = 1
-    xl = features.clone()
-    xu = features.clone()
-    xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
-    xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
-    bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu)
-    LB = bounds.LB
-    UB = bounds.UB
+#    mask = torch.FloatTensor(features.size())
+#    mask.zero_()
+#    mask[perturb_idx,:] = 1
+#    xl = features.clone()
+#    xu = features.clone()
+#    xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
+#    xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
+#    bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu)
+#    LB = bounds.LB
+#    UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
-    error = elision_error(LB[-1])
-    acc_count += (1-error)*batch_size
+#    error = elision_error(LB[-1])
+#    acc_count += (1-error)*batch_size
 
 
 #print(len(idx_test))
-ave_acc = acc_count / len(idx_test)
+#ave_acc = acc_count / len(idx_test)
+ave_err = err_count / (10*batch_size)
 #print(acc_count , len(idx_test))
-print("acc_lb_bound"+str(ave_acc))
+#print("acc_lb_bound"+str(ave_acc))
+print("err_lb_bound "+str(ave_err))
 
