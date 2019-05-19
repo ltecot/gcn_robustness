@@ -39,6 +39,28 @@ def tensor_product(A, B):
 def kronecker(A, B):
     return torch.einsum("ab,cd->acbd", A, B).view(A.size(0)*B.size(0),  A.size(1)*B.size(1))
 
+def kronecker_sparse(A, B):
+    NI = A.shape[0] * B.shape[0]
+    NJ = A.shape[1] * B.shape[1]
+    A_i = torch.nonzero(A)
+    A_v = A[A_i.t()[0], A_i.t()[1]]
+    B_i = torch.nonzero(B)
+    B_v = B[B_i.t()[0], B_i.t()[1]]
+    # AB_i = []
+    # AB_v = []
+    AB_i = torch.zeros([A_i.shape[0]*B_i.shape[0], 2], dtype=torch.long)
+    AB_v = torch.zeros([A_i.shape[0]*B_i.shape[0]], dtype=torch.float)
+    s = torch.Tensor([B.shape[0], B.shape[1]]).float()
+    for ai in range(A_i.shape[0]):
+        for bi in range(B_i.shape[0]):
+            # AB_i.append(A_i[ai].float() * s + B_i[bi].float())
+            # AB_v.append(A_v[ai] * B_v[bi])
+            AB_i[ai * B_i.shape[0] + bi] = A_i[ai].float() * s + B_i[bi].float()
+            AB_v[ai * B_i.shape[0] + bi] = A_v[ai] * B_v[bi]
+    # AB_i = torch.stack(AB_i).long().t()
+    # AB_v = torch.stack(AB_v)
+    return torch.sparse.FloatTensor(AB_i.t(), AB_v, torch.Size((NI, NJ)))
+
 def generate_adj(file_name):
     fr = open(file_name,"r")
     fw = open(file_name+"_processed","w")
