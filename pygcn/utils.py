@@ -371,6 +371,15 @@ def load_graphsage_data(prefix, normalize=True):
         test_data    = data['test_data']
         train_adj = sp.csr_matrix((data['train_adj_data'], data['train_adj_indices'], data['train_adj_indptr']), shape=data['train_adj_shape'])
         full_adj  = sp.csr_matrix((data['full_adj_data'], data['full_adj_indices'], data['full_adj_indptr']), shape=data['full_adj_shape'])
+        ###### to make it compatible with pytorch gcn
+        coo_adj = full_adj.tocoo()
+        values = coo_adj.data
+        indices = np.vstack((coo_adj.row,coo_adj.col))
+        i = torch.LongTensor(indices)
+        v = torch.FloatTensor(values)
+        shape = coo_adj.shape
+        adj_t = torch.sparse.FloatTensor(i,v,torch.Size(shape))
+        labels = np.argmax(labels,axis=1)
         print('Finished in {} seconds.'.format(time() - start_time))
     else:
         print('Loading data...')
@@ -494,7 +503,7 @@ def load_graphsage_data(prefix, normalize=True):
                              train_data=train_data, val_data=val_data, 
                              test_data=test_data)
 
-    return num_data, train_adj, full_adj, feats, train_feats, test_feats, labels, train_data, val_data, test_data
+    return num_data, train_adj, full_adj, feats, train_feats, test_feats, labels, train_data, val_data, test_data, adj_t
 
 
 
