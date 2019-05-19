@@ -34,16 +34,22 @@ parser.add_argument('--compare_file',
 parser.add_argument('--elision',
             action = 'store_true',
             default = False)
+parser.add_argument('--no_kron',
+            action = 'store_true',
+            default = False)
+parser.add_argument('--sparse_kron',
+            action = 'store_true',
+            default = False)
 
 args = parser.parse_args()
 relaxed = args.relaxed
 small = args.small
 eps = args.eps
-# targets = None
-targets = list(range(0, 2))
+targets = None
+targets = list(range(0, 1))
 # targets = [0, 1]
-# p_targets = None
-p_targets = list(range(0, 5))
+p_targets = None
+p_targets = list(range(0, 300))
 # p_targets = [0, 1]
 
 p_n = float('inf')
@@ -103,7 +109,10 @@ if relaxed:
                 'upper_bound': UB,
                 }, 'test_bounds_relaxed.pt')
 elif args.twolayer:
-    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, p_targets, args.elision, labels=labels, xl=xl, xu=xu, p_n=p_n)
+    bound_calc = GCNBoundsTwoLayer(model, features, adj, eps, targets, 
+                                   p_targets, args.elision, labels=labels, 
+                                   xl=xl, xu=xu, p_n=p_n, no_kron=args.no_kron, 
+                                   sparse_kron=args.sparse_kron)
     LB = bound_calc.LB
     UB = bound_calc.UB
     # print("last upper: ", UB[-1].view(-1))
@@ -112,8 +121,8 @@ elif args.twolayer:
     for n in range(LB[-1].view(-1).shape[0]):
         print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
     print("error: ", elision_error(LB[-1]))
-    # pickle1 = pickle.load(open(args.compare_file, "rb"))
-    # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    pickle1 = pickle.load(open(args.compare_file, "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
     torch.save({
                 'lower_bound': LB,
                 'upper_bound': UB,

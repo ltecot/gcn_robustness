@@ -2,13 +2,15 @@
 # We'll also just do l-inf norm for the sake of convenience.
 # See paper for variable definitions.
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import pickle 
 import math
+from scipy.sparse import coo_matrix, kron
 
 from pygcn.layers import GraphConvolution
-from pygcn.utils import kronecker, tensor_product
+from pygcn.utils import kronecker, tensor_product, kronecker_sparse
 
 '''
 Notes for expiriments:
@@ -54,13 +56,16 @@ class GCNBoundsTwoLayer():
                                     tensor, and not a pointer to the original data. Also make sure you only
                                     perturb the inputs that you give in the perturb_targets list.
         p_n (float): The norm of the epsilon ball allowed for the input features.
-
+        no_kron (bool): If true, will not use the kronecker product for computing the second layer bounds.
+                        Will instead do a tensor product for each perturbed point during calculation.
+        sparse_kron (bool): If true, will not calculate the second layer kronecker product as a sparce matrix.
     Vars:
         See all stored variables at end of __init__. Access as needed.
         LB and UB contain the upper and lower bound respectively for each layer.
         You probably care about the last element of each, LB[-1] and UB[-1], for the final bound.
     """
-    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, labels=None, xl=None, xu=None, p_n=float('inf')):
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, 
+                 labels=None, xl=None, xu=None, p_n=float('inf'), no_kron=False, sparse_kron=False):
         if elision:
             if labels is not None:
                 gt = labels
@@ -78,7 +83,10 @@ class GCNBoundsTwoLayer():
         alpha_l.append(al)
         beta_u.append(bu)
         beta_l.append(bl)
-        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n)
+        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, 
+                                                                          alpha_u, alpha_l, beta_u, beta_l, 
+                                                                          targets, perturb_targets, elision, 
+                                                                          gt, p_n, no_kron, sparse_kron)
         LB.append(lb)
         UB.append(ub)
 
@@ -94,6 +102,8 @@ class GCNBoundsTwoLayer():
         self.xl = xl
         self.xu = xu
         self.p_n = p_n
+        self.no_kron = sparse_kron
+        self.sparse_kron = sparse_kron
         
         self.weights = weights
         self.alpha_u = alpha_u
@@ -181,7 +191,8 @@ class GCNBoundsTwoLayer():
 
     # Computes the full bound for the second layer, plus variables used in computation.
     @staticmethod
-    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, targets, perturb_targets, elision, gt, p_n):
+    def compute_bound_and_variables(weights, adj, x, eps, alpha_u, alpha_l, beta_u, beta_l, 
+                                    targets, perturb_targets, elision, gt, p_n, no_kron, sparse_kron):
         N = adj.shape[0]
         I = alpha_u[0].shape[1]
         J = weights[-1].shape[1]
@@ -212,7 +223,11 @@ class GCNBoundsTwoLayer():
             p_targs = torch.Tensor(perturb_targets).long()
         else:
             p_targs = torch.Tensor(list(range(N))).long()
-        w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
+        if not no_kron:
+            if sparse_kron:
+                w0_vec = kronecker_sparse(adj.t().contiguous()[p_targs], weights[0])
+            else:
+                w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
         q_n = int(1.0/ (1.0 - 1.0/p_n)) if p_n != 1 else float('inf')
         for j in range(J):
             lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
@@ -229,16 +244,30 @@ class GCNBoundsTwoLayer():
                 if elision and gt[i] != int(j / J_org):
                     continue
                 w1_vec = tensor_product(adj.t().contiguous()[:, i], weights[1][:, j]).view(-1, 1)
-                ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)
-                ubeps = eps * torch.norm(ubeps_mat, p=q_n)
-                lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
-                lbeps = -eps * torch.norm(lbeps_mat, p=q_n)
+                if no_kron:
+                    ubeps, lbeps = 0, 0
+                    for t in p_targs:
+                        w0_vec_row = kronecker(adj.t().contiguous()[t:t+1], weights[0])
+                        ubeps_mat = w0_vec_row.mm(w1_vec * lmd_l_kron)
+                        ubeps += eps * torch.norm(ubeps_mat, p=q_n)
+                        lbeps_mat = w0_vec_row.mm(w1_vec * omg_l_kron)
+                        lbeps += -eps * torch.norm(lbeps_mat, p=q_n)
+                        del ubeps_mat
+                        del lbeps_mat
+                        del w0_vec_row
+                else:
+                    ubeps_mat = w0_vec.mm(w1_vec * lmd_l_kron)
+                    ubeps = eps * torch.norm(ubeps_mat, p=q_n)
+                    lbeps_mat = w0_vec.mm(w1_vec * omg_l_kron)
+                    lbeps = -eps * torch.norm(lbeps_mat, p=q_n)
                 if elision:
                     UB[i, j - gt[i]*J_org] = ubeps + ub0[i, 0] + ubb[i, 0]
                     LB[i, j - gt[i]*J_org] = lbeps + lb0[i, 0] + lbb[i, 0]
                 else:
                     UB[i, j] = ubeps + ub0[i, 0] + ubb[i, 0]
                     LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
+                # Ensure deletion of large matricies
+                del w1_vec
         return LB[targs], UB[targs], [lmd_l], [omg_l], [delta_l], [theta_l] 
 
 
