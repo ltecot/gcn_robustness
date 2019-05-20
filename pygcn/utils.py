@@ -175,6 +175,12 @@ def data_loader(dataset):
     if dataset == "reddit":
         prefix = "../data/reddit/reddit"
         return load_graphsage_data(prefix)
+    if dataset == "ppi":
+        prefix = "../data/ppi/ppi"
+        return load_graphsage_data(prefix)
+    if dataset == "pubmed":
+        prefix = "../data/pubmed/pubmed"
+        return load_gcn_data(prefix)
     return adj, features, labels
 
 def train_val_test_split_tabular(*arrays, train_size=0.5, val_size=0.3, test_size=0.2, stratify=None, random_state=42):
@@ -216,8 +222,9 @@ def train_val_test_split_tabular(*arrays, train_size=0.5, val_size=0.3, test_siz
     return idx_train, idx_val, idx_test
 
 
-def load_gcn_data(dataset_str):
-    npz_file = 'data/{}/{}_{}.npz'.format(dataset_str, dataset_str, "gcn")
+def load_gcn_data(prefix):
+    #npz_file = 'data/{}/{}_{}.npz'.format(dataset_str, dataset_str, "gcn")
+    npz_file = prefix+"_"+"gcn.npz"
     if os.path.exists(npz_file):
         start_time = time()
         print('Found preprocessed dataset {}, loading...'.format(npz_file))
@@ -232,6 +239,15 @@ def load_gcn_data(dataset_str):
         feats = sp.csr_matrix((data['feats_data'], data['feats_indices'], data['feats_indptr']), shape=data['feats_shape'])
         train_feats = sp.csr_matrix((data['train_feats_data'], data['train_feats_indices'], data['train_feats_indptr']), shape=data['train_feats_shape'])
         test_feats = sp.csr_matrix((data['test_feats_data'], data['test_feats_indices'], data['test_feats_indptr']), shape=data['test_feats_shape'])
+        labels = np.argmax(labels,axis=1)
+        coo_adj = full_adj.tocoo()
+        values = coo_adj.data
+        indices = np.vstack((coo_adj.row,coo_adj.col))
+        i = torch.LongTensor(indices)
+        v = torch.FloatTensor(values)
+        shape = coo_adj.shape
+        adj_t = torch.sparse.FloatTensor(i,v,torch.Size(shape))
+        feats = feats.todense()
         print('Finished in {} seconds.'.format(time() - start_time))
     else:
         """Load data."""
@@ -363,7 +379,7 @@ def load_gcn_data(dataset_str):
                              train_data=train_data, val_data=val_data, 
                              test_data=test_data)
 
-    return num_data, train_adj, full_adj, feats, train_feats, test_feats, labels, train_data, val_data, test_data
+    return num_data, train_adj, full_adj, feats, train_feats, test_feats, labels, train_data, val_data, test_data, adj_t
 
 
 def load_graphsage_data(prefix, normalize=True):
@@ -401,7 +417,7 @@ def load_graphsage_data(prefix, normalize=True):
         v = torch.FloatTensor(values)
         shape = coo_adj.shape
         adj_t = torch.sparse.FloatTensor(i,v,torch.Size(shape))
-        labels = np.argmax(labels,axis=1)
+        #labels = np.argmax(labels,axis=1)
         print('Finished in {} seconds.'.format(time() - start_time))
     else:
         print('Loading data...')
@@ -535,7 +551,7 @@ def load_graphsage_data(prefix, normalize=True):
 
 def load_data(dataset="cora"):
    
-    if dataset == "reddit":
+    if dataset == "reddit" or dataset == "ppi" or dataset == "pubmed":
         return data_loader(dataset)
     adj, features, labels = data_loader(dataset)
     # build symmetric adjacency matrix
