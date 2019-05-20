@@ -6,6 +6,21 @@ from sklearn.model_selection import train_test_split
 import os
 from time import time
 import pickle
+import json
+from networkx.readwrite import json_graph
+
+# import numpy as np
+# import pickle as pkl
+# import networkx as nx
+# from networkx.readwrite import json_graph
+# import scipy.sparse as sp
+# from scipy.sparse.linalg.eigen.arpack import eigsh
+# from sklearn.metrics import f1_score
+# import sys
+# import tensorflow as tf
+# import json
+# from time import time
+# import copy
 
 # Computes error associated with elision bound output.
 # Takes in the lower derived bounds.
@@ -16,6 +31,26 @@ def elision_error(LB):
     for n in range(N):
         if torch.sum(LB[n] < n_ep) > 0:
             err += 1
+    return err / N
+
+# Computes error associated with a multi-class 
+# Assumes labels is of the same dimension of LB and UB
+# Element should be 0 if the label is not true and 1 if it is, for
+# that specific node and index.
+def multiclass_error(LB, UB, labels):
+    N = LB.shape[0]
+    J = LB.shape[1]
+    err = 0
+    for n in range(N):
+        n_err = 0
+        for l in range(J):
+            if labels[n, l] == 1 and LB[n, l] < 0:
+                n_err = 1
+                break
+            elif labels[n, l] == 0 and UB[n, l] > 0:
+                n_err = 1
+                break
+        err += n_err
     return err / N
 
 def compare_matricies(pickle1, pickle2):
@@ -428,27 +463,28 @@ def load_graphsage_data(prefix, normalize=True):
     
         feats = np.load(prefix + "-feats.npy").astype(np.float32)
         id_map = json.load(open(prefix + "-id_map.json"))
-        if id_map.keys()[0].isdigit():
+        # print(id_map)
+        if list(id_map.keys())[0].isdigit():
             conversion = lambda n: int(n)
         else:
             conversion = lambda n: n
-        id_map = {conversion(k):int(v) for k,v in id_map.iteritems()}
+        id_map = {conversion(k):int(v) for k,v in id_map.items()}
 
         walks = []
         class_map = json.load(open(prefix + "-class_map.json"))
-        if isinstance(class_map.values()[0], list):
+        if isinstance(list(class_map.values())[0], list):
             lab_conversion = lambda n : n
         else:
             lab_conversion = lambda n : int(n)
     
-        class_map = {conversion(k): lab_conversion(v) for k,v in class_map.iteritems()}
+        class_map = {conversion(k): lab_conversion(v) for k,v in class_map.items()}
 
         ## Remove all nodes that do not have val/test annotations
         ## (necessary because of networkx weirdness with the Reddit data)
         broken_count = 0
         to_remove = []
         for node in G.nodes():
-            if not id_map.has_key(node):
+            if node not in id_map:
             #if not G.node[node].has_key('val') or not G.node[node].has_key('test'):
                 to_remove.append(node)
                 broken_count += 1
@@ -462,7 +498,7 @@ def load_graphsage_data(prefix, normalize=True):
     
         edges = []
         for edge in G.edges():
-            if id_map.has_key(edge[0]) and id_map.has_key(edge[1]):
+            if edge[0] in id_map and edge[1] in id_map:
                 edges.append((id_map[edge[0]], id_map[edge[1]]))
         print('{} edges'.format(len(edges)))
         num_data   = len(id_map)
@@ -485,7 +521,7 @@ def load_graphsage_data(prefix, normalize=True):
         train_edges = np.array(train_edges, dtype=np.int32)
     
         # Process labels
-        if isinstance(class_map.values()[0], list):
+        if isinstance(list(class_map.values())[0], list):
             num_classes = len(class_map.values()[0])
             labels = np.zeros((num_data, num_classes), dtype=np.float32)
             for k in class_map.keys():
@@ -540,6 +576,16 @@ def load_graphsage_data(prefix, normalize=True):
                              labels=labels,
                              train_data=train_data, val_data=val_data, 
                              test_data=test_data)
+
+        # Pytorch stuff
+        coo_adj = full_adj.tocoo()
+        values = coo_adj.data
+        indices = np.vstack((coo_adj.row,coo_adj.col))
+        i = torch.LongTensor(indices)
+        v = torch.FloatTensor(values)
+        shape = coo_adj.shape
+        adj_t = torch.sparse.FloatTensor(i,v,torch.Size(shape))
+        labels = np.argmax(labels,axis=1)
 
     return num_data, train_adj, full_adj, feats, train_feats, test_feats, labels, train_data, val_data, test_data, adj_t
 
