@@ -83,10 +83,11 @@ class GCNBoundsTwoLayer():
         alpha_l.append(al)
         beta_u.append(bu)
         beta_l.append(bl)
-        lb, ub, lmd, omg, delta, theta = self.compute_bound_and_variables(weights, adj, x, eps, 
-                                                                          alpha_u, alpha_l, beta_u, beta_l, 
-                                                                          targets, perturb_targets, elision, 
-                                                                          gt, p_n, no_kron, sparse_kron)
+        # lb, ub, lmd, omg, delta, theta 
+        lb, ub = self.compute_bound_and_variables(weights, adj, x, eps, 
+                                                  alpha_u, alpha_l, beta_u, beta_l, 
+                                                  targets, perturb_targets, elision, 
+                                                  gt, p_n, no_kron, sparse_kron)
         LB.append(lb)
         UB.append(ub)
 
@@ -110,10 +111,10 @@ class GCNBoundsTwoLayer():
         self.alpha_l = alpha_l
         self.beta_u = beta_u
         self.beta_l = beta_l
-        self.lmd = lmd
-        self.omg = omg
-        self.delta = delta
-        self.theta = theta
+        # self.lmd = lmd
+        # self.omg = omg
+        # self.delta = delta
+        # self.theta = theta
         self.LB = LB
         self.UB = UB
 
@@ -159,18 +160,15 @@ class GCNBoundsTwoLayer():
             u = xu
         w = weights[0]
         I, J = w.shape
-        # TODO: Vectorize
-        lt, ut = torch.zeros(N, I, J), torch.zeros(N, I, J)
-        for j in range(J):
-            lt[:, :, j] = (l * (w[:, j] > 0).float().repeat(N, 1) + 
-                           u * (w[:, j] <= 0).float().repeat(N, 1))
-            ut[:, :, j] = (u * (w[:, j] > 0).float().repeat(N, 1) + 
-                           l * (w[:, j] <= 0).float().repeat(N, 1))
-        # TODO: Vectorize
         next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
+        # lt, ut = torch.zeros(N, I, J), torch.zeros(N, I, J)
         for j in range(J):
-            next_l[:, j:j+1] = adj.mm(lt[:, :, j]).mm(w[:,j:j+1])  # One-element slice to keep dimensions
-            next_u[:, j:j+1] = adj.mm(ut[:, :, j]).mm(w[:,j:j+1])
+            lt = (l * (w[:, j] > 0).float().repeat(N, 1) + 
+                  u * (w[:, j] <= 0).float().repeat(N, 1))
+            ut = (u * (w[:, j] > 0).float().repeat(N, 1) + 
+                  l * (w[:, j] <= 0).float().repeat(N, 1))
+            next_l[:, j:j+1] = adj.mm(lt).mm(w[:,j:j+1])  # One-element slice to keep dimensions
+            next_u[:, j:j+1] = adj.mm(ut).mm(w[:,j:j+1])
         return next_l, next_u
 
     # Return lower alpha, upper alpha, lower beta, and upper beta.
@@ -196,20 +194,8 @@ class GCNBoundsTwoLayer():
         N = adj.shape[0]
         I = alpha_u[0].shape[1]
         J = weights[-1].shape[1]
-        
-        lmd_l, omg_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
-        delta_l, theta_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
-        # TODO: Vectorize
-        for j in range(J):
-            lmd_l[:, :, j] = (alpha_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
-                              alpha_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
-            omg_l[:, :, j] = (alpha_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
-                              alpha_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
-            delta_l[:, :, j] = (beta_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
-                                beta_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
-            theta_l[:, :, j] = (beta_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
-                                beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
-
+        # lmd_l, omg_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
+        # delta_l, theta_l = torch.zeros(N, I, J), torch.zeros(N, I, J)
         if elision:
             J_org = int(math.sqrt(J))  # Original J
             UB, LB = torch.zeros(N, J_org), torch.zeros(N, J_org)
@@ -230,16 +216,24 @@ class GCNBoundsTwoLayer():
                 w0_vec = kronecker(adj.t().contiguous()[p_targs], weights[0])
         q_n = int(1.0/ (1.0 - 1.0/p_n)) if p_n != 1 else float('inf')
         for j in range(J):
-            lmd_l_kron = lmd_l[:, :, j].view(-1, 1)
-            omg_l_kron = omg_l[:, :, j].view(-1, 1)
+            lmd_l = (alpha_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                     alpha_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            omg_l = (alpha_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                     alpha_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            delta_l = (beta_u[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                       beta_l[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            theta_l = (beta_l[0] * (weights[-1][:, j] > 0).float().repeat(N, 1) +
+                       beta_u[0] * (weights[-1][:, j] <= 0).float().repeat(N, 1))
+            lmd_l_kron = lmd_l.view(-1, 1)
+            omg_l_kron = omg_l.view(-1, 1)
             # Upper bound
-            ub1 = adj.mm(x).mm(weights[0]) * lmd_l[:, :, j]  # First layer mult
+            ub1 = adj.mm(x).mm(weights[0]) * lmd_l  # First layer mult
             ub0 = adj.mm(ub1).mm(weights[1][:, j:j+1]) # Second layer mult
-            ubb = adj.mm(lmd_l[:, :, j] * delta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
+            ubb = adj.mm(lmd_l * delta_l).mm(weights[1][:, j:j+1])  # bias
             # Lower bound
-            lb1 = adj.mm(x).mm(weights[0]) * omg_l[:, :, j]  # First layer mult
+            lb1 = adj.mm(x).mm(weights[0]) * omg_l  # First layer mult
             lb0 = adj.mm(lb1).mm(weights[1][:, j:j+1]) # Second layer mult
-            lbb = adj.mm(omg_l[:, :, j] * theta_l[:, :, j]).mm(weights[1][:, j:j+1])  # bias
+            lbb = adj.mm(omg_l * theta_l).mm(weights[1][:, j:j+1])  # bias
             for i in targs:
                 if elision and gt[i] != int(j / J_org):
                     continue
@@ -268,7 +262,7 @@ class GCNBoundsTwoLayer():
                     LB[i, j] = lbeps + lb0[i, 0] + lbb[i, 0]
                 # Ensure deletion of large matricies
                 del w1_vec
-        return LB[targs], UB[targs], [lmd_l], [omg_l], [delta_l], [theta_l] 
+        return LB[targs], UB[targs] # , [lmd_l], [omg_l], [delta_l], [theta_l] 
 
 
 # -----------------------------------------------------------------------------------------------------
