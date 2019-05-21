@@ -46,10 +46,10 @@ relaxed = args.relaxed
 small = args.small
 eps = args.eps
 targets = None
-targets = list(range(0, 1))
+targets = list(range(0, 2))
 # targets = [0, 1]
 p_targets = None
-p_targets = list(range(0, 300))
+p_targets = list(range(0, 5))
 # p_targets = [0, 1]
 
 p_n = float('inf')
@@ -121,8 +121,8 @@ elif args.twolayer:
     for n in range(LB[-1].view(-1).shape[0]):
         print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
     print("error: ", elision_error(LB[-1]))
-    pickle1 = pickle.load(open(args.compare_file, "rb"))
-    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    # pickle1 = pickle.load(open(args.compare_file, "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
     torch.save({
                 'lower_bound': LB,
                 'upper_bound': UB,
