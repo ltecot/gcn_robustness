@@ -42,8 +42,11 @@ def select_perturb_node(adj,target_node,hops, random_p, with_target_node):
         n_idx = torch.sort(perm[:k])[0]
     return n_idx
         
-def select_target_node_sp(adj, n_neighbours, pred, label, idx_test):
+def select_target_node_sp(adj, n_neighbours, pred, label, idx_test, multitask=False):
     #print(idx_test)
+    if multitask:
+        #print(type(idx_test),idx_test)
+        return sorted(idx_test)
     adj = adj[idx_test]
     #mask = (pred==label[idx_test])
     label = label[idx_test]
