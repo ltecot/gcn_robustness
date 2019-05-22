@@ -195,7 +195,7 @@ for target_idx in target_list:
     hops = args.hops
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
-    #perm =  torch.randperm(perturb_idx.size(0))
+    perm =  torch.randperm(perturb_idx.size(0))
     #perturb_idx = torch.LongTensor(target_idx)
     if args.dataset=="reddit":
         perturb_idx = select_perturb_node_sp(full_adj, target_idx, hops, None, False)
@@ -203,7 +203,7 @@ for target_idx in target_list:
         print("Perturbing on "+ str(len(perturb_idx)/features.shape[0]*100)+" nodes")
     else:
         perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
-        #perturb_idx = perturb_idx[perm[:20]]
+        perturb_idx = perturb_idx[perm[:20]]
         #perturb_idx = torch.LongTensor(target_idx)
         print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)

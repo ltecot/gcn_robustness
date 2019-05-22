@@ -50,7 +50,8 @@ parser.add_argument('--epsilon', type=float, default=0.01,
 parser.add_argument('--verbose', action='store_true', default=False,
                     help='verbose.')
 
-
+parser.add_argument('--single', action='store_true', default=False,
+                    help='single perturb')
 args = parser.parse_args()
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -151,7 +152,7 @@ target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
-dir_name = "logs/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)
+dir_name = "logs/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)
 os.makedirs(dir_name, exist_ok=True)
 filename = dir_name+"/"+str(starting_point)+".log"
 log_f = open(filename,"w")
@@ -161,12 +162,13 @@ for target_idx in target_list:
     print("Attacking on "+str(target_idx))
     target_idx = [target_idx]
     hops = args.hops
-    perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
-
-    #perturb_idx = torch.LongTensor(target_idx)
+    if not args.single:
+        perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
+        perm =  torch.randperm(perturb_idx.size(0))
+        perturb_idx = perturb_idx[perm[:20]]
+    else:
+        perturb_idx = torch.LongTensor(target_idx)
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
-    #perm =  torch.randperm(perturb_idx.size(0))
-    #perturb_idx = perturb_idx[perm[:20]]
     print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)
     perturb_idx = perturb_idx.numpy()
