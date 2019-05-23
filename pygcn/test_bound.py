@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 import h5py
-from utils import load_data, accuracy, elision_error
+from utils import load_data, accuracy, elision_error, multiclass_error
 from models import gcn_sequential_model
 from PGD import PGD
 from node_masking import select_target_node, select_perturb_node
@@ -56,6 +56,29 @@ args = parser.parse_args()
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
+
+def test_ppi(model,features,labels, idx_test, target_label=None):
+    output = model(features)
+    #print(target_label)
+    criterion = torch.nn.BCEWithLogitsLoss()
+    #print(output.shape, output[idx_test].shape)
+    if target_label is None:
+        preds = output[idx_test]>0
+        labels = labels[idx_test]>0.5
+        correct = preds.eq(labels)
+        loss_test = criterion(preds.float(), labels.float())
+    else:
+        preds = output[idx_test, target_label] 
+        labels = labels[idx_test, target_label]
+        binary_preds = preds > 0
+        binary_labels = labels > 0.5
+        correct = binary_preds.eq(binary_labels)
+        loss_test = criterion(preds, labels.float())
+    #print(output, label_or_target)
+    acc_test = torch.mean(correct.float())
+    #print(loss)
+    #print(c.size(),modifier.size())
+    return loss_test, acc_test
 
 
 def test(model, features, labels, idx_test):
@@ -126,6 +149,7 @@ if args.dataset == "reddit" or args.dataset== "pubmed" or args.dataset== "ppi":
         preds, clean_acc = test(model, features, labels, test_d)
     #Test()
     #adj = adj_t
+    print(preds)
     adj = adj_t.to_dense()
 else:
     adj, features, labels, idx_train, idx_val, idx_test = load_data(args.dataset)
@@ -148,6 +172,7 @@ starting_point = args.start
 npoints = args.npoints
 end_point = starting_point + npoints
 point_list = pickle.load(open(args.p_file,"rb"))
+np.random.shuffle(point_list)
 target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
@@ -157,9 +182,17 @@ os.makedirs(dir_name, exist_ok=True)
 filename = dir_name+"/"+str(starting_point)+".log"
 log_f = open(filename,"w")
 
+if args.dataset == "ppi":
+    multitask = True
+else:
+    multitask = False
+
 
 for target_idx in target_list:
     print("Attacking on "+str(target_idx))
+    if multitask:
+        target_label = np.random.randint(121,size=1)
+
     target_idx = [target_idx]
     hops = args.hops
     if not args.single:
@@ -176,17 +209,19 @@ for target_idx in target_list:
     mask.zero_()
     mask[perturb_idx,:] = 1
     if not args.dataset=="reddit":
-        xl = features.clone()
-        xu = features.clone()
-        xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
-        xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
-        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
+        #xl = features.clone()
+        #xu = features.clone()
+        #xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
+        #xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
+        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
+        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False)
     else:
         bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True)
     LB = bounds.LB
     UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
-    error = elision_error(LB[-1])
+    error = multiclass_error(LB,UB,target_idx,target_label,labels[target_idx,target_label]) 
+    #error = elision_error(LB[-1])
     if error==1.0:
         log_f.write("success!\n")
     else:
