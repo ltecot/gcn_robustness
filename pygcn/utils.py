@@ -37,21 +37,25 @@ def elision_error(LB):
 # Assumes labels is of the same dimension of LB and UB
 # Element should be 0 if the label is not true and 1 if it is, for
 # that specific node and index.
-def multiclass_error(LB, UB, labels):
+def multiclass_error(LB, UB, n_idx,l_idx,label):
     N = LB.shape[0]
     J = LB.shape[1]
-    err = 0
-    for n in range(N):
-        n_err = 0
-        for l in range(J):
-            if labels[n, l] == 1 and LB[n, l] < 0:
-                n_err = 1
-                break
-            elif labels[n, l] == 0 and UB[n, l] > 0:
-                n_err = 1
-                break
-        err += n_err
-    return err / N
+    err = 0.0
+    if labels[n_idx,l_idx] ==1 and LB[n_idx, l_idx] < 0:
+        err = 1.0 
+    elif labels[n_idx,l_idx] ==0 and UB[n_idx, l_idx] > 0:
+        err = 1.0
+    #for n in range(N):
+    #    n_err = 0
+    #    for l in range(J):
+    #        if labels[n, l] == 1 and LB[n, l] < 0:
+    #            n_err = 1
+    #            break
+    #        elif labels[n, l] == 0 and UB[n, l] > 0:
+    #            n_err = 1
+    #            break
+    #    err += n_err
+    return err
 
 def compare_matricies(pickle1, pickle2):
     for k in pickle1.keys() & pickle2.keys():
