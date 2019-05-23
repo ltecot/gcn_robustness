@@ -56,34 +56,28 @@ np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
 
-def test_ppi(model, features, labels, idx_test):
-    #model.eval()
-    # output = model(features, adj)
+def test_ppi(model,features,labels, idx_test, target_label=None):
     output = model(features)
-    #print(output)
-    #print(labels)
-    # loss_test = F.nll_loss(output[idx_test], labels[idx_test])
-    preds = output[idx_test] > 0
-    labels = labels[idx_test] > 0.5
-    correct = preds.eq(labels)
-    #print(correct)
-    #correct = correct.sum()
-    #print(type(correct),correct)
-    acc_test = torch.mean(correct.float())
-
+    #print(target_label)
     criterion = torch.nn.BCEWithLogitsLoss()
-    loss_test = criterion(preds.float(), labels.float())
-    #print(preds,labels)
-    #loss_test = F.nll_loss(F.log_softmax(output[idx_test], dim=1), labels[idx_test])
-    #acc_test = accuracy(output[idx_test], labels[idx_test])
-    #acc_test =  correct/labels.shape[0] 
-    print("Test set results:",
-          "loss= {:.4f}".format(loss_test.item()),
-          "accuracy= {:.4f}".format(acc_test.item()))
-   
-    #preds = output[idx_test].max(1)[1].type_as(labels[idx_test])
-    #print(output[idx_test].size(), len(idx_test))
-    return preds, acc_test 
+    #print(output.shape, output[idx_test].shape)
+    if target_label is None:
+        preds = output[idx_test]>0
+        labels = labels[idx_test]>0.5
+        correct = preds.eq(labels)
+        loss_test = criterion(preds.float(), labels.float())
+    else:
+        preds = output[idx_test, target_label] 
+        labels = labels[idx_test, target_label]
+        binary_preds = preds > 0
+        binary_labels = labels > 0.5
+        correct = binary_preds.eq(binary_labels)
+        loss_test = criterion(preds, labels.float())
+    #print(output, label_or_target)
+    acc_test = torch.mean(correct.float())
+    #print(loss)
+    #print(c.size(),modifier.size())
+    return loss_test, acc_test
 
 def test(model, features, labels, idx_test):
     #model.eval()
@@ -152,6 +146,7 @@ if args.dataset == "reddit" or args.dataset== "pubmed" or args.dataset== "ppi":
     else:
         preds, clean_acc = test(model, features, labels, test_d)
     #Test()
+    print("models accuracy:{}".format(clean_acc))
     adj = adj_t
     adj = adj.to_dense()
 
@@ -190,20 +185,26 @@ if args.dataset == "ppi":
     multitask = True
 else:
     multitask = False
+
 for target_idx in target_list:
     print("Attacking on "+str(target_idx))
     target_idx = [target_idx]
     hops = args.hops
-    if not args.single:
+    if multitask:
+        target_label = np.random.randint(121,size=1)
+
+    if args.dataset=="reddit":
+        perturb_idx = select_perturb_node_sp(full_adj, target_idx, hops, None, False)
+    
+        print("Perturbing on "+ str(len(perturb_idx)/features.shape[0]*100)+" nodes")
+    elif not args.single:
         perturb_idx = select_perturb_node(adj, target_idx, hops, None, False)
         perm =  torch.randperm(perturb_idx.size(0))
         perturb_idx = perturb_idx[perm[:20]]
     else:
         perturb_idx = torch.LongTensor(target_idx)
-    #perturb_idx = torch.LongTensor(target_idx)
-        #perturb_idx = torch.LongTensor(target_idx)
-    print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     perturb_idx = perturb_idx.numpy()
+    print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)
     mask = torch.FloatTensor(features.size())
     mask.zero_()
@@ -211,8 +212,11 @@ for target_idx in target_list:
     if args.dataset=="reddit":
         features_adv = attack(features, labels, target_idx, mask, epsilon, sparse=True)
     else:
-        features_adv = attack(features, labels, target_idx, mask, epsilon, sparse=False, multitask=multitask)
-    _, acc= test(model, features_adv, labels, target_idx)
+        features_adv = attack(features, labels, target_idx, mask, epsilon, sparse=False, target_label=target_label, multitask=multitask)
+    if multitask:
+        _, acc= test_ppi(model, features_adv, labels, target_idx, target_label)
+    else:
+        _, acc= test(model, features_adv, labels, target_idx)
     if acc==0:
         log_f.write("success!\n")
     else:
