@@ -148,6 +148,7 @@ starting_point = args.start
 npoints = args.npoints
 end_point = starting_point + npoints
 point_list = pickle.load(open(args.p_file,"rb"))
+np.random.shuffle(point_list)
 target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
