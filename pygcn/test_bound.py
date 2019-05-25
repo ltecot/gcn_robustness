@@ -13,7 +13,7 @@ from models import gcn_sequential_model
 from PGD import PGD
 from node_masking import select_target_node, select_perturb_node
 import pickle
-from robustness import GCNBoundsTwoLayer
+from robustness import GCNBoundsTwoLayer, GCNIntervalBounds
 import os
 
 parser = argparse.ArgumentParser()
@@ -177,7 +177,7 @@ target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
-dir_name = "logs/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)
+dir_name = "logs/interval/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)
 os.makedirs(dir_name, exist_ok=True)
 filename = dir_name+"/"+str(starting_point)+".log"
 log_f = open(filename,"w")
@@ -216,12 +216,13 @@ for target_idx in target_list:
         #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
         bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False)
     else:
-        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True)
+        bounds = GCNIntervalBounds(model,features,adj,epsilon, target_idx=target_idx, perturb_idx=perturb_idx, elision=True)
+        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True)
     LB = bounds.LB
     UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
-    error = multiclass_error(LB,UB,target_idx,target_label,labels[target_idx,target_label]) 
-    #error = elision_error(LB[-1])
+    #error = multiclass_error(LB,UB,target_idx,target_label,labels[target_idx,target_label]) 
+    error = elision_error(LB[-1])
     if error==1.0:
         log_f.write("success!\n")
     else:
