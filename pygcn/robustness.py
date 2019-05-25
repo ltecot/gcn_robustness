@@ -12,14 +12,6 @@ from scipy.sparse import coo_matrix, kron
 from pygcn.layers import GraphConvolution
 from pygcn.utils import kronecker, tensor_product, kronecker_sparse
 
-'''
-Notes for expiriments:
-Make sure we throw out any points who predict the wrong class.
-TODO: Should probably change elision to use the true labels rather than model prediction.
-Make sure to copy x when computing xl and xu.
-This takes a while if you give more than 100 perturb targets. Probably best to limit it to
-that number and run a bunch of small batches.
-'''
 class GCNBoundsTwoLayer():
     """
     Special full bounds for two layers only. Specifically avoids using full kronecker products
@@ -265,6 +257,117 @@ class GCNBoundsTwoLayer():
         return LB[targs], UB[targs] # , [lmd_l], [omg_l], [delta_l], [theta_l] 
 
 
+class GCNIntervalBounds():
+    """
+    Interval bounds for comparison
+    """
+    def __init__(self, model, x, adj, eps, targets=None, perturb_targets=None, elision=False, 
+                 labels=None, xl=None, xu=None):
+        if elision:
+            if labels is not None:
+                gt = labels
+            else:
+                _, gt = torch.max(model.forward(x), 1)
+        else:
+            gt = None
+        weights = self.extract_parameters(model, elision)
+        LB, UB = self.compute_interval_bounds(x, eps, weights, adj, perturb_targets, targets,
+                                              elision, gt, xl=xl, xu=xu)
+
+        # Store variables
+        self.model = model
+        self.x = x
+        self.adj = adj
+        self.eps = eps
+        self.targets = targets
+        self.perturb_targets = perturb_targets
+        self.elision = elision
+        self.labels = gt
+        self.xl = xl
+        self.xu = xu
+        
+        self.weights = weights
+        self.LB = LB
+        self.UB = UB
+
+    # Return the weights of each GCN layer
+    # Bias not supported.
+    @staticmethod
+    def extract_parameters(model, elision):
+        weights = []
+        for layer in model:
+            if isinstance(layer, GraphConvolution):
+                weights.append(layer.weight)
+            else:
+                raise ValueError("Only GCN layers supported.")
+        if len(weights) > 2:
+            raise ValueError("Only Two GCN layers supported.")
+        # Change to elision weights
+        if elision:
+            w = weights[-1]
+            J = w.shape[-1]
+            w_e = -w.repeat(1, J)  # Attacker contribution
+            for j1 in range(J):
+                for j2 in range(J):
+                    w_e[:, j1*J+j2] += w[:, j1]
+            weights[-1] = w_e
+        return weights
+        
+    # Return l and u for each neuron preactivation in the first layer.
+    @staticmethod
+    def compute_interval_bounds(x, eps, weights, adj, perturb_targets, targets, 
+                                elision, labels, xl=None, xu=None):
+        LB, UB = [], []
+        N = x.shape[0]
+        if perturb_targets is not None:
+            l = x.clone()
+            u = x.clone()
+            for n in perturb_targets:
+                l[n] -= eps
+                u[n] += eps
+        else:
+            l = x.clone() - eps
+            u = x.clone() + eps
+        if xl is not None:
+            l = xl
+        if xu is not None:
+            u = xu
+        for k in range(len(weights)):
+            w = weights[k]
+            I, J = w.shape
+            next_l, next_u = torch.zeros(N, J), torch.zeros(N, J)
+            # print(w.shape)
+            # print(l.shape)
+            for j in range(J):
+                # print((w[:, j] > 0).float().repeat(N, 1).shape)
+                lt = (l * (w[:, j] > 0).float().repeat(N, 1) + 
+                      u * (w[:, j] <= 0).float().repeat(N, 1))
+                ut = (u * (w[:, j] > 0).float().repeat(N, 1) + 
+                      l * (w[:, j] <= 0).float().repeat(N, 1))
+                next_l[:, j:j+1] = adj.mm(lt).mm(w[:,j:j+1])  # One-element slice to keep dimensions
+                next_u[:, j:j+1] = adj.mm(ut).mm(w[:,j:j+1])
+            if k != len(weights) - 1:
+                next_l = F.relu(next_l)
+                next_u = F.relu(next_u)
+            LB.append(next_l)
+            UB.append(next_u)
+            l = next_l
+            u = next_u
+        # Select target and proper elision labels
+        if elision:
+            N, J = LB[-1].shape
+            J_org = int(math.sqrt(J))  # Original J
+            new_l, new_u = torch.zeros(N, J_org), torch.zeros(N, J_org)
+            for n in range(N):
+                new_u[n, :] = UB[-1][n, labels[n]*J_org:(labels[n]+1)*J_org]
+                new_l[n, :] = LB[-1][n, labels[n]*J_org:(labels[n]+1)*J_org]
+            LB[-1] = new_l
+            UB[-1] = new_u
+        if targets is not None:
+            for i in range(len(LB)):
+                LB[i] = LB[i][targets]
+                UB[i] = UB[i][targets]
+        return LB, UB
 # -----------------------------------------------------------------------------------------------------
 
 

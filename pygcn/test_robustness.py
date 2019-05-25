@@ -12,7 +12,7 @@ import torch.optim as optim
 
 from pygcn.utils import load_data, accuracy, compare_matricies, elision_error
 # from pygcn.models import GCN
-from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull, GCNBoundsTwoLayer
+from pygcn.robustness import GCNBoundsRelaxed, GCNBoundsFull, GCNBoundsTwoLayer, GCNIntervalBounds
 from pygcn.models import gcn_sequential_model
 
 parser = argparse.ArgumentParser()
@@ -23,6 +23,9 @@ parser.add_argument('--small',
             action = 'store_true',
             default = False)
 parser.add_argument('--twolayer',
+            action = 'store_true',
+            default = False)
+parser.add_argument('--interval',
             action = 'store_true',
             default = False)
 parser.add_argument('--eps',
@@ -120,13 +123,13 @@ elif args.twolayer:
     # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
     for n in range(LB[-1].view(-1).shape[0]):
         print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
-    print("error: ", elision_error(LB[-1]))
+    # print("error: ", elision_error(LB[-1]))
     # pickle1 = pickle.load(open(args.compare_file, "rb"))
     # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
-    torch.save({
-                'lower_bound': LB,
-                'upper_bound': UB,
-                }, 'test_bounds_twolayer.pt')
+    # torch.save({
+    #             'lower_bound': LB,
+    #             'upper_bound': UB,
+    #             }, 'test_bounds_twolayer.pt')
     # Additional debug
     # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
     # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
@@ -142,6 +145,24 @@ elif args.twolayer:
     #     # 'l_lb': bound_calc.theta[-1][:, -1], 
     # }
     # compare_matricies(pickle1, gc)
+elif args.interval:
+    bound_calc = GCNIntervalBounds(model, features, adj, eps, targets, 
+                                   p_targets, args.elision, labels=labels, 
+                                   xl=xl, xu=xu)
+    LB = bound_calc.LB
+    UB = bound_calc.UB
+    # print("last upper: ", UB[-1].view(-1))
+    # print("last lower: ", LB[-1].view(-1))
+    # print("sums: ", torch.sum(bounds[0]), torch.sum(bounds[1]))
+    for n in range(LB[-1].view(-1).shape[0]):
+        print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
+    # print("error: ", elision_error(LB[-1]))
+    # pickle1 = pickle.load(open(args.compare_file, "rb"))
+    # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    # torch.save({
+    #             'lower_bound': LB,
+    #             'upper_bound': UB,
+    #             }, 'test_bounds_twolayer.pt')
 else: # full
     bound_calc = GCNBoundsFull(model, features, adj, eps, targets)
     LB = bound_calc.LB
