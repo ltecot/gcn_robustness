@@ -49,13 +49,14 @@ relaxed = args.relaxed
 small = args.small
 eps = args.eps
 targets = None
-targets = list(range(0, 2))
+# targets = list(range(0, 2))
 # targets = [0, 1]
 p_targets = None
-p_targets = list(range(0, 5))
+# p_targets = list(range(0, 50))
 # p_targets = [0, 1]
 
-p_n = float('inf')
+# p_n = float('inf')
+p_n = 2.0
 
 # print(relaxed, small, eps)
 
@@ -124,15 +125,17 @@ elif args.twolayer:
     for n in range(LB[-1].view(-1).shape[0]):
         print(str(LB[-1].view(-1).data[n]) + " < n_" + str(n) + " < " + str(UB[-1].view(-1).data[n]))
     # print("error: ", elision_error(LB[-1]))
-    # pickle1 = pickle.load(open(args.compare_file, "rb"))
-    # compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
-    # torch.save({
-    #             'lower_bound': LB,
-    #             'upper_bound': UB,
-    #             }, 'test_bounds_twolayer.pt')
+    pickle1 = pickle.load(open(args.compare_file, "rb"))
+    compare_matricies(pickle1, {'LB': LB[-1].view(-1), 'UB': UB[-1].view(-1)})
+    torch.save({
+                'lower_bound': LB,
+                'upper_bound': UB,
+                }, 'test_bounds_twolayer.pt')
     # Additional debug
-    # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
-    # compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
+    print("first upper: ", UB[-2].view(-1))
+    print("first lower: ", LB[-2].view(-1))
+    pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_firstlayer_eps1-100.pkl", "rb"))
+    compare_matricies(pickle1, {'LB': LB[-2].view(-1), 'UB': UB[-2].view(-1)})
     # pickle1 = pickle.load(open("../../RecurJac-Develop/gcn_small_bound_generalchecks_eps1-100.pkl", "rb"))
     # # print(bound_calc.lmd[-1].shape)
     # gc = {'upper_k': bound_calc.alpha_u[0].view(-1), 
