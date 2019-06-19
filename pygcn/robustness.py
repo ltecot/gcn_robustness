@@ -137,15 +137,6 @@ class GCNBoundsTwoLayer():
     @staticmethod
     def compute_first_layer_preac_bounds(x, eps, weights, adj, perturb_targets, p_n, xl=None, xu=None):
         N = x.shape[0]
-        # if perturb_targets is not None:
-        #     l = x.clone()
-        #     u = x.clone()
-        #     for n in perturb_targets:
-        #         l[n] -= eps
-        #         u[n] += eps
-        # else:
-        #     l = x.clone() - eps
-        #     u = x.clone() + eps
         if xl is not None:
             l = xl
         if xu is not None:
@@ -158,27 +149,21 @@ class GCNBoundsTwoLayer():
         for j in range(J):
             if xl is not None or xl is not None:
                 lt = (l * (w[:, j] > 0).float().repeat(N, 1) + 
-                    u * (w[:, j] <= 0).float().repeat(N, 1))
+                      u * (w[:, j] <= 0).float().repeat(N, 1))
                 ut = (u * (w[:, j] > 0).float().repeat(N, 1) + 
-                    l * (w[:, j] <= 0).float().repeat(N, 1))
+                      l * (w[:, j] <= 0).float().repeat(N, 1))
                 next_l[:, j:j+1] = adj.mm(lt).mm(w[:,j:j+1])  # One-element slice to keep dimensions
                 next_u[:, j:j+1] = adj.mm(ut).mm(w[:,j:j+1])
             else:
-                dualnorm = torch.norm(w[:, j], q_n)
-                xw = x.mm(w[:,j:j+1])
-                if perturb_targets:
-                    xw_l = xw.clone()
-                    xw_u = xw.clone()
-                    for n in perturb_targets:
-                        xw_l[n] -= eps*dualnorm
-                        xw_u[n] += eps*dualnorm
-                else:
-                    xw_l = xw - eps*dualnorm
-                    xw_u = xw + eps*dualnorm
-                # next_l[:, j:j+1] = next_x - eps*dualnorm
-                # next_u[:, j:j+1] = next_x + eps*dualnorm
-                next_l[:, j:j+1] = adj.mm(xw_l)
-                next_u[:, j:j+1] = adj.mm(xw_u)
+                axw = adj.mm(x).mm(w[:,j:j+1])
+                dualnorm_w = torch.norm(w[:, j], q_n)
+                for n in range(N):
+                    if perturb_targets:
+                        dualnorm_a = torch.norm(adj[n, perturb_targets], q_n)
+                    else:
+                        dualnorm_a = torch.norm(adj[n, :], q_n)
+                    next_l[n, j] = axw[n,0] - eps*dualnorm_a*dualnorm_w
+                    next_u[n, j] = axw[n,0] + eps*dualnorm_a*dualnorm_w
         return next_l, next_u
 
     # Return lower alpha, upper alpha, lower beta, and upper beta.

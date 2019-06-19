@@ -49,14 +49,14 @@ relaxed = args.relaxed
 small = args.small
 eps = args.eps
 targets = None
-# targets = list(range(0, 2))
+targets = list(range(0, 2))
 # targets = [0, 1]
 p_targets = None
-# p_targets = list(range(0, 50))
+p_targets = list(range(0, 5))
 # p_targets = [0, 1]
 
-# p_n = float('inf')
-p_n = 2.0
+p_n = float('inf')
+# p_n = 2.0
 
 # print(relaxed, small, eps)
 
