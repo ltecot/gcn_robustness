@@ -160,7 +160,7 @@ else:
                                  nhid=args.hidden, 
                                  nclass=labels.max().item() + 1,
                                  adj=adj)
-    model_path = args.dataset+"_"+str(args.hidden)+"_gcn_model.pth"
+    model_path = args.dataset+"_"+str(args.hidden)+"_gcn_model_reg.pth"
     model.load_state_dict(torch.load(model_path))
     model.eval()
     preds, clean_acc = test(model, features, labels, idx_test)
@@ -176,7 +176,7 @@ target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
-dir_name = "logs/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)
+dir_name = "logs/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)+"_reg"
 os.makedirs(dir_name, exist_ok=True)
 filename = dir_name+"/"+str(starting_point)+".log"
 log_f = open(filename,"w")
@@ -192,6 +192,8 @@ for target_idx in target_list:
     hops = args.hops
     if multitask:
         target_label = np.random.randint(121,size=1)
+    else:
+        target_label = None
 
     if args.dataset=="reddit":
         perturb_idx = select_perturb_node_sp(full_adj, target_idx, hops, None, False)
@@ -203,9 +205,9 @@ for target_idx in target_list:
         perturb_idx = perturb_idx[perm[:20]]
     else:
         perturb_idx = torch.LongTensor(target_idx)
-    perturb_idx = perturb_idx.numpy()
     print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)
+    perturb_idx = perturb_idx.numpy()
     mask = torch.FloatTensor(features.size())
     mask.zero_()
     mask[perturb_idx,:] = 1

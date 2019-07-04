@@ -161,7 +161,7 @@ else:
                                  nhid=args.hidden, 
                                  nclass=labels.max().item() + 1,
                                  adj=adj)
-    model_path = args.dataset+"_"+str(args.hidden)+"_gcn_model.pth"
+    model_path = args.dataset+"_"+str(args.hidden)+"_gcn_model_reg.pth"
     model.load_state_dict(torch.load(model_path))
     model.eval()
     preds, clean_acc = test(model, features, labels, idx_test)
@@ -177,7 +177,7 @@ target_list = point_list[starting_point:end_point]
 attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
-dir_name = "logs/interval/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)
+dir_name = "logs/bound/"+args.dataset+"_"+str(epsilon)+"_"+str(args.hops)+"_"+str(args.single)+"_reg"
 os.makedirs(dir_name, exist_ok=True)
 filename = dir_name+"/"+str(starting_point)+".log"
 log_f = open(filename,"w")
@@ -209,15 +209,16 @@ for target_idx in target_list:
     mask.zero_()
     mask[perturb_idx,:] = 1
     if not args.dataset=="reddit":
-        #xl = features.clone()
-        #xu = features.clone()
-        #xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
-        #xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
-        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
-        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False)
+        xl = features.clone()
+        xu = features.clone()
+        xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
+        xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
+        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
+        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False, p_n=2.0)
+        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False)
     else:
-        bounds = GCNIntervalBounds(model,features,adj,epsilon, target_idx=target_idx, perturb_idx=perturb_idx, elision=True)
-        #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True)
+        #bounds = GCNIntervalBounds(model,features,adj,epsilon, target_idx=target_idx, perturb_idx=perturb_idx, elision=True)
+        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True, p_n=2.0)
     LB = bounds.LB
     UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
