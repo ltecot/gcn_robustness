@@ -174,6 +174,7 @@ end_point = starting_point + npoints
 point_list = pickle.load(open(args.p_file,"rb"))
 np.random.shuffle(point_list)
 target_list = point_list[starting_point:end_point]
+# print("target list: ", target_list)
 attack = PGD(model)
 epsilon = args.epsilon
 #correct = 0
@@ -202,6 +203,7 @@ for target_idx in target_list:
     else:
         perturb_idx = torch.LongTensor(target_idx)
     #perturb_idx = select_perturb_node(adj, target_idx, hops, None, True)
+    print("perturb_idx: ", perturb_idx)
     print("Perturbing on "+ str(perturb_idx.size(0)/features.size(0)*100)+" nodes")
     #print(perturb_idx)
     perturb_idx = perturb_idx.numpy()
@@ -213,12 +215,12 @@ for target_idx in target_list:
         xu = features.clone()
         xl[perturb_idx] = torch.clamp(xl[perturb_idx], min=0)
         xu[perturb_idx] = torch.clamp(xu[perturb_idx], max=1)
-        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False)
+        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, xl=xl,xu=xu, sparse_kron=False, labels=labels)
         #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False, p_n=2.0)
         #bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=False)
     else:
         #bounds = GCNIntervalBounds(model,features,adj,epsilon, target_idx=target_idx, perturb_idx=perturb_idx, elision=True)
-        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True, p_n=2.0)
+        bounds = GCNBoundsTwoLayer(model, features, adj, epsilon, targets=target_idx, perturb_targets=perturb_idx, elision=True, sparse_kron=True, p_n=2.0, labels=labels)
     LB = bounds.LB
     UB = bounds.UB
     #print("error: ", elision_error(LB[-1]))
@@ -226,8 +228,12 @@ for target_idx in target_list:
     error = elision_error(LB[-1])
     if error==1.0:
         log_f.write("success!\n")
+        print("elision error: ", error)
+        print("LB: ", LB[-1])
     else:
         log_f.write("fail!\n")
+        print("elision error: ", error)
+        print("LB: ", LB[-1])
 
 log_f.close()
 #print('job start, attack point {} to {}'.format(starting_point, end_point))
